@@ -6,7 +6,7 @@ fn convert_node(node: &ego_tree::NodeRef<'_, ScraperNode>) -> Option<Node> {
     match node.value() {
         ScraperNode::Text(text) => {
             let s = text.text.as_ref();
-            if s.trim().is_empty() {
+            if s.is_empty() {
                 return None;
             }
             Some(Node::text(s))
@@ -14,12 +14,34 @@ fn convert_node(node: &ego_tree::NodeRef<'_, ScraperNode>) -> Option<Node> {
         ScraperNode::Element(elem) => {
             let tag: &str = elem.name.local.as_ref();
 
-            // <br> → newline text node so code blocks preserve line breaks
             if tag == "br" {
                 return Some(Node::text("\n"));
             }
 
             let attrs: Vec<(&str, &str)> = elem.attrs().collect();
+
+            // For <pre>, propagate language class to child <code> if missing
+            if tag == "pre" {
+                let pre_lang = elem.attr("class")
+                    .and_then(|c| c.split_whitespace().find(|s| s.starts_with("language-")));
+                let mut result = Node::element_with_attrs(tag, attrs);
+                for child in node.children() {
+                    if let Some(mut child_node) = convert_node(&child) {
+                        if let Some(lang) = pre_lang {
+                            if child_node.tag_name() == "code"
+                                && child_node.attr("class").map_or(true, |c| !c.contains(lang))
+                            {
+                                let old_class = child_node.attr("class").unwrap_or("");
+                                let new_class = if old_class.is_empty() { lang.to_string() } else { format!("{} {}", old_class, lang) };
+                                child_node.set_attr("class", &new_class);
+                            }
+                        }
+                        result.add_child(child_node);
+                    }
+                }
+                return Some(result);
+            }
+
             let mut result = if attrs.is_empty() {
                 Node::element(tag)
             } else {
