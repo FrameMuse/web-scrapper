@@ -75,6 +75,7 @@ const offset = (flags["offset"] as number) ?? 0;
 const limit = flags["limit"] as number | undefined;
 const force = flags["force"] === "true";
 const dryRun = flags["dry-run"] === "true";
+const followLinks = flags["follow-links"] === "true";
 const outputDir = expandTilde((flags["output"] as string) ?? ".");
 const singleUrl = positional[0];
 
@@ -234,9 +235,109 @@ async function singlePage(): Promise<void> {
   await scrapeOne(singleUrl!);
 }
 
+function extractLinks(html: string, baseUrl: string): string[] {
+  const links: string[] = [];
+  const re = /<a\b[^>]*href="([^"]*)"[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    try {
+      // Normalize: trailing slash for path-like URLs, remove hash
+      let resolved = new URL(m[1], baseUrl).href;
+      const hashIdx = resolved.indexOf("#");
+      if (hashIdx !== -1) resolved = resolved.substring(0, hashIdx);
+      if (!resolved.endsWith("/")) resolved += "/";
+      if (!urlFilter || resolved.startsWith(urlFilter)) {
+        links.push(resolved);
+      }
+    } catch {}
+  }
+  return links;
+}
+
+async function crawlLinks(): Promise<void> {
+  if (!singleUrl) {
+    console.error("--follow-links requires a starting URL");
+    process.exit(1);
+  }
+  if (pipeMode) {
+    console.error("--follow-links requires --output for batch mode");
+    process.exit(1);
+  }
+
+  writeFile(outputDir + "/.keep", "");
+  // Ensure trailing slash for consistent dedup
+  const startUrl = singleUrl!.replace(/\/?$/, "/");
+  const processed = new Set<string>();
+  const visited = new Set<string>([startUrl]);
+  const queue: string[] = [startUrl];
+
+  while (queue.length > 0 && (limit === undefined || processed.size < limit)) {
+    const batch = queue.splice(
+      0,
+      Math.min(concurrent, limit !== undefined ? limit - processed.size : concurrent)
+    );
+
+    const results = await Promise.allSettled(
+      batch.map(async (url) => {
+        if (processed.has(url)) return;
+        processed.add(url);
+
+        const html = await fetchHtml(url);
+
+        // Discover new links
+        const discovered = extractLinks(html, url);
+        for (const link of discovered) {
+          if (!visited.has(link)) {
+            visited.add(link);
+            if (limit === undefined || processed.size + queue.length < limit) {
+              queue.push(link);
+            }
+          }
+        }
+
+        // Scrape content
+        const extracted = extract(html, selector, matchRe);
+        if (!extracted) {
+          console.error(`  No content found at ${url}`);
+          return;
+        }
+
+        let mdBody = await htmlToMd(extracted.contentHtml);
+        mdBody = mdBody.replace(/\s*\[​\]\(#[^)]+\)/g, "");
+        mdBody = mdBody.replace(/\\-/g, "-");
+        const rewritten = rewriteLinks(mdBody, url, resolvedBaseUrl);
+        const fm = renderFrontmatter({
+          title: extracted.title,
+          description: extracted.description,
+          source: url,
+          date: extracted.date,
+        });
+        const outPath = mdPath(outputDir, url, resolvedBaseUrl);
+        writeFile(outPath, fm + "\n" + rewritten + "\n");
+        const rel = outPath.replace(outputDir + "/", "");
+        console.error(`  \u2713 ${rel}`);
+      })
+    );
+
+    for (const r of results) {
+      if (r.status === "rejected") {
+        console.error(`  \u2717 ${r.reason}`);
+      }
+    }
+
+    if (queue.length > 0) {
+      await Bun.sleep(interval);
+    }
+  }
+
+  console.error(`Done. ${processed.size} pages scraped.`);
+}
+
 // ---- main ----
 
-if (sitemapUrl) {
+if (followLinks) {
+  await crawlLinks();
+} else if (sitemapUrl) {
   if (pipeMode) {
     console.error("--sitemap requires --output for batch mode");
     process.exit(1);
@@ -245,13 +346,14 @@ if (sitemapUrl) {
 } else if (singleUrl) {
   await singlePage();
 } else if (dryRun) {
-  console.error("--dry-run requires --sitemap or a URL argument");
+  console.error("--dry-run requires --sitemap, --follow-links, or a URL argument");
   process.exit(1);
 } else {
   console.error("Usage:");
-  console.error("  scrape <url>                              # pipe mode: stdout + auto-detect selectors");
-  console.error("  scrape --selector=... <url>                # file mode: write .md, auto output dir");
-  console.error("  scrape --selector=... --url-base=... <url> # file mode with link rewriting");
-  console.error("  scrape --sitemap=URL --selector=... --url-base=... --output=DIR  # batch mode");
+  console.error("  scrape <url>                                               # pipe mode: stdout + auto-detect selectors");
+  console.error("  scrape --selector=... <url>                                 # file mode: write .md, auto output dir");
+  console.error("  scrape --selector=... --url-base=... <url>                  # file mode with link rewriting");
+  console.error("  scrape --sitemap=URL --selector=... --url-base=... --output=DIR  # batch from sitemap");
+  console.error("  scrape <url> --follow-links --url-base=... --output=DIR      # batch from link crawling");
   process.exit(1);
 }
