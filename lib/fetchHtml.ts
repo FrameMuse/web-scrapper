@@ -1,16 +1,11 @@
 import { existsSync, mkdirSync } from "fs";
 
 let chromeEnabled = false;
-let interactiveEnabled = false;
 const CHROME_PROFILE = "/tmp/scrape-chrome-profile";
 const CDP_PORT = 9223;
 
 export function setChromeEnabled(v: boolean): void {
   chromeEnabled = v;
-}
-
-export function setInteractive(v: boolean): void {
-  interactiveEnabled = v;
 }
 
 function isChallengePage(html: string): boolean {
@@ -41,98 +36,108 @@ function chromeDumpDom(url: string, headless: boolean, profile?: string): { ok: 
   const args = chromeArgs(profile);
   if (headless) args.unshift("--headless");
   args.push("--dump-dom", url);
-
   const proc = Bun.spawnSync(["google-chrome-stable", ...args], {});
-  return {
-    ok: proc.exitCode === 0,
-    stdout: proc.stdout.toString(),
-  };
+  return { ok: proc.exitCode === 0, stdout: proc.stdout.toString() };
 }
 
-async function fetchViaCdp(): Promise<string | null> {
-  try {
-    // Get page targets from Chrome devtools
-    const resp = await fetch(`http://localhost:${CDP_PORT}/json`);
-    const pages = await resp.json() as Array<{ id: string; webSocketDebuggerUrl: string }>;
-    if (pages.length === 0) return null;
-
-    const wsUrl = pages[0].webSocketDebuggerUrl;
-    if (!wsUrl) return null;
-
-    // Connect to CDP WebSocket and evaluate document
+/// Wait for challenge to resolve via CDP, return the real page HTML
+async function waitForRealContent(wsUrl: string, timeoutMs = 120000): Promise<string | null> {
+  return new Promise((resolve) => {
     const ws = new WebSocket(wsUrl);
-    const result = await new Promise<string | null>((resolve) => {
-      const timeout = setTimeout(() => { ws.close(); resolve(null); }, 5000);
+    let msgId = 1;
+    const start = Date.now();
 
-      ws.onopen = () => {
-        ws.send(JSON.stringify({
-          id: 1,
-          method: "Runtime.evaluate",
-          params: { expression: "document.documentElement.outerHTML" },
-        }));
-      };
+    ws.onopen = () => poll();
 
-      ws.onmessage = (event: MessageEvent) => {
-        try {
-          const msg = JSON.parse(event.data as string);
-          if (msg.id === 1) {
-            clearTimeout(timeout);
-            ws.close();
-            resolve(msg.result?.result?.value ?? null);
+    function poll() {
+      if (Date.now() - start > timeoutMs) {
+        ws.close();
+        resolve(null);
+        return;
+      }
+      const id = msgId++;
+      ws.send(JSON.stringify({
+        id,
+        method: "Runtime.evaluate",
+        params: { expression: "document.title" },
+      }));
+    }
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const msg = JSON.parse(event.data as string);
+        if (msg.id && msg.result?.result?.value) {
+          const title: string = msg.result.result.value;
+          if (!/just a moment/i.test(title)) {
+            // Challenge resolved — grab full page
+            const grabId = msgId++;
+            ws.send(JSON.stringify({
+              id: grabId,
+              method: "Runtime.evaluate",
+              params: { expression: "document.documentElement.outerHTML" },
+            }));
+            ws.onmessage = (ev2: MessageEvent) => {
+              try {
+                const m2 = JSON.parse(ev2.data as string);
+                if (m2.id === grabId) {
+                  ws.close();
+                  resolve(m2.result?.result?.value ?? null);
+                }
+              } catch {}
+            };
+            return;
           }
-        } catch {}
-      };
+        }
+      } catch {}
+      // Poll again after delay
+      setTimeout(poll, 1000);
+    };
 
-      ws.onerror = () => { clearTimeout(timeout); resolve(null); };
-    });
-
-    return result;
-  } catch {
-    return null;
-  }
+    ws.onerror = () => resolve(null);
+  });
 }
 
-async function fetchWithChrome(url: string, isRetry = false): Promise<string> {
-  const useProfile = interactiveEnabled || existsSync(CHROME_PROFILE);
-  if (interactiveEnabled && !existsSync(CHROME_PROFILE)) {
+async function fetchWithChrome(url: string): Promise<string> {
+  const useProfile = chromeEnabled || existsSync(CHROME_PROFILE);
+  if (!existsSync(CHROME_PROFILE)) {
     mkdirSync(CHROME_PROFILE, { recursive: true });
   }
 
+  // Try headless first
   const r = chromeDumpDom(url, true, useProfile ? CHROME_PROFILE : undefined);
-  if (!r.ok) {
-    throw new Error(`Chrome failed for ${url}`);
+  if (!r.ok) throw new Error(`Chrome failed for ${url}`);
+  if (!isChallengePage(r.stdout)) return r.stdout;
+
+  // Challenge detected — launch headed browser with CDP, wait for user to solve
+  Bun.spawn(["google-chrome-stable", ...chromeArgs(CHROME_PROFILE, CDP_PORT), url], {
+    stdio: ["ignore", "ignore", "ignore"],
+  });
+
+  // Poll CDP until challenge resolves
+  const wsUrl = await discoverCdpTarget(CDP_PORT);
+  if (wsUrl) {
+    const html = await waitForRealContent(wsUrl);
+    if (html && !isChallengePage(html)) return html;
   }
 
-  if (interactiveEnabled && !isRetry && isChallengePage(r.stdout)) {
-    // Open headed Chrome with CDP for content extraction
-    Bun.spawn(["google-chrome-stable", ...chromeArgs(CHROME_PROFILE, CDP_PORT), url], {
-      stdio: ["ignore", "ignore", "ignore"],
-    });
-
-    console.error("  Cloudflare challenge detected.");
-    console.error("  Solve the captcha in the opened browser, then press Enter.");
-
-    // Wait for user to press Enter
-    await new Promise<void>((resolve) => {
-      process.stdin.once("data", () => resolve());
-    });
-
-    // Get content via CDP from the already-loaded page
-    const html = await fetchViaCdp();
-    if (html && !isChallengePage(html)) {
-      return html;
-    }
-
-    // Fallback: try headless dump with the profile
-    const r2 = chromeDumpDom(url, true, CHROME_PROFILE);
-    if (r2.ok && !isChallengePage(r2.stdout)) {
-      return r2.stdout;
-    }
-
-    return r.stdout;
-  }
+  // Fallback: headless dump with profile (cookies may persist)
+  const r2 = chromeDumpDom(url, true, CHROME_PROFILE);
+  if (r2.ok && !isChallengePage(r2.stdout)) return r2.stdout;
 
   return r.stdout;
+}
+
+async function discoverCdpTarget(port: number, retries = 20): Promise<string | null> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const resp = await fetch(`http://localhost:${port}/json`);
+      const pages = await resp.json() as Array<{ webSocketDebuggerUrl?: string }>;
+      const wsUrl = pages.find((p) => p.webSocketDebuggerUrl)?.webSocketDebuggerUrl;
+      if (wsUrl) return wsUrl;
+    } catch {}
+    await Bun.sleep(500);
+  }
+  return null;
 }
 
 export async function fetchHtml(url: string): Promise<string> {
@@ -150,8 +155,7 @@ export async function fetchHtml(url: string): Promise<string> {
 function fetchWithHttp(url: string): Promise<string> {
   return fetch(url, {
     headers: {
-      "User-Agent":
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Accept-Language": "en-US,en;q=0.5",
     },

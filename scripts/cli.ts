@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";
-import { fetchHtml, setChromeEnabled, setInteractive } from "../lib/fetchHtml.ts";
+import { fetchHtml, setChromeEnabled } from "../lib/fetchHtml.ts";
 import { extract } from "../lib/extract.ts";
 import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
@@ -77,12 +77,10 @@ const force = flags["force"] === "true";
 const dryRun = flags["dry-run"] === "true";
 const followLinks = flags["follow-links"] === "true";
 const useChrome = flags["chrome"] === "true";
-const interactive = flags["interactive"] === "true";
 const outputDir = expandTilde((flags["output"] as string) ?? ".");
 const singleUrl = positional[0];
 
 if (useChrome) setChromeEnabled(true);
-if (interactive) setInteractive(true);
 
 const pipeMode = !hasFlags && !!singleUrl;
 
