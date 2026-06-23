@@ -104,6 +104,66 @@ fn collect_text(node: &ego_tree::NodeRef<'_, ScraperNode>) -> String {
     out
 }
 
+/// Map Docusaurus admonition class to GFM alert type
+fn admonition_type(class: &str) -> Option<&'static str> {
+    if class.contains("theme-admonition-note") || class.contains("theme-admonition-info") {
+        Some("NOTE")
+    } else if class.contains("theme-admonition-tip") {
+        Some("TIP")
+    } else if class.contains("theme-admonition-important") {
+        Some("IMPORTANT")
+    } else if class.contains("theme-admonition-warning") {
+        Some("WARNING")
+    } else if class.contains("theme-admonition-danger") || class.contains("theme-admonition-caution") {
+        Some("CAUTION")
+    } else {
+        None
+    }
+}
+
+/// Convert Docusaurus admonition div to GFM alert blockquote
+fn convert_admonition(node: &ego_tree::NodeRef<'_, ScraperNode>, atype: &str, rules: &[CodeByRule]) -> Option<Node> {
+    // Find admonitionContent child — its children become blockquote paragraphs
+    let mut content_children: Vec<Node> = Vec::new();
+
+    for child in node.children() {
+        match child.value() {
+            ScraperNode::Element(e) => {
+                let tag: &str = e.name.local.as_ref();
+                if tag == "div" {
+                    if let Some(elem_ref) = ElementRef::wrap(child) {
+                        let cls = elem_ref.attr("class").unwrap_or("");
+                        if cls.contains("admonitionContent") {
+                            // Collect content children as blockquote paragraphs
+                            for content_child in child.children() {
+                                if let Some(cn) = convert_node(&content_child, rules) {
+                                    content_children.push(cn);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if content_children.is_empty() { return None; }
+
+    // Build blockquote: first paragraph has "[!TYPE]", then content follows
+    let mut bq = Node::element("blockquote");
+
+    let mut first_p = Node::element("p");
+    first_p.add_child(Node::text(&format!("[!{}]", atype)));
+    bq.add_child(first_p);
+
+    for c in content_children {
+        bq.add_child(c);
+    }
+
+    Some(bq)
+}
+
 fn convert_node(node: &ego_tree::NodeRef<'_, ScraperNode>, rules: &[CodeByRule]) -> Option<Node> {
     match node.value() {
         ScraperNode::Text(text) => {
@@ -119,6 +179,17 @@ fn convert_node(node: &ego_tree::NodeRef<'_, ScraperNode>, rules: &[CodeByRule])
             if let Some(elem_ref) = ElementRef::wrap(*node) {
                 if matches_code_by(elem_ref, rules) {
                     return Some(convert_code_by_element(node, elem_ref, rules));
+                }
+            }
+
+            // Check for Docusaurus admonitions
+            if tag == "div" {
+                if let Some(cls) = elem.attr("class") {
+                    if let Some(atype) = admonition_type(cls) {
+                        if let Some(result) = convert_admonition(node, atype, rules) {
+                            return Some(result);
+                        }
+                    }
                 }
             }
 
