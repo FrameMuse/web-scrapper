@@ -109,18 +109,31 @@ async function fetchWithChrome(url: string): Promise<string> {
   if (!isChallengePage(r.stdout)) return r.stdout;
 
   // Challenge detected — launch headed browser with CDP, wait for user to solve
+  console.error(`  Opening browser for captcha...`);
   Bun.spawn(["google-chrome-stable", ...chromeArgs(CHROME_PROFILE, CDP_PORT), url], {
     stdio: ["ignore", "ignore", "ignore"],
   });
 
   // Poll CDP until challenge resolves
+  console.error(`  Waiting for captcha to be solved (CDP)...`);
   const wsUrl = await discoverCdpTarget(CDP_PORT);
   if (wsUrl) {
     const html = await waitForRealContent(wsUrl);
-    if (html && !isChallengePage(html)) return html;
+    if (html) {
+      if (!isChallengePage(html)) {
+        console.error(`  Captcha solved, content captured.`);
+        return html;
+      }
+      console.error(`  CDP returned challenge page unexpectedly.`);
+    } else {
+      console.error(`  CDP wait timed out.`);
+    }
+  } else {
+    console.error(`  Could not connect to Chrome debug port.`);
   }
 
   // Fallback: headless dump with profile (cookies may persist)
+  console.error(`  Fallback: headless dump...`);
   const r2 = chromeDumpDom(url, true, CHROME_PROFILE);
   if (r2.ok && !isChallengePage(r2.stdout)) return r2.stdout;
 
