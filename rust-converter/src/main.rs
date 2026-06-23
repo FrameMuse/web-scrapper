@@ -89,6 +89,7 @@ fn main() {
         heading_style: HeadingStyle::Atx,
         code_block_style: CodeBlockStyle::Fenced,
         bullet_list_marker: '-',
+        hr: "---".to_string(),
         ..Default::default()
     });
 
