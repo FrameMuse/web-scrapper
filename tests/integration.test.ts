@@ -1,9 +1,12 @@
 import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync } from "fs";
+import { spawnSync } from "child_process";
 import { extract } from "../lib/extract.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
 import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { urlToPath } from "../lib/save.ts";
+
+const CONVERTER = "rust-converter/target/release/html-to-md";
 
 const FIXTURES = "tests/fixtures";
 const BASE = "https://developers.figma.com/docs/plugins/";
@@ -116,6 +119,76 @@ describe("frontmatter integration", () => {
     expect(fm).toContain('title: "Prerequisites"');
     expect(fm).toContain("source: https://developers.figma.com");
     expect(fm).toMatch(/---\n$/);
+  });
+});
+
+describe("code-by feature (Rust converter)", () => {
+  test("code-by wraps property content in backticks", () => {
+    const html = `<h3 id="annotations" data-property="true" class="property">annotations: ReadonlyArray&lt;<a href="/docs/Annotation/">Annotation</a>&gt;</h3>`;
+    const proc = spawnSync(CONVERTER, ["h3.property"], {
+      input: html,
+      encoding: "utf-8",
+    });
+    expect(proc.status).toBe(0);
+    const out = proc.stdout;
+    expect(out).toContain("`annotations");
+    expect(out).toContain("ReadonlyArray<");
+    expect(out).toContain("[Annotation]");
+  });
+
+  test("code-by splits backticks around links", () => {
+    const html = `<h3 class="property">type: <a href="/docs/Foo/">Foo</a></h3>`;
+    const proc = spawnSync(CONVERTER, ["h3.property"], {
+      input: html,
+      encoding: "utf-8",
+    });
+    expect(proc.status).toBe(0);
+    // Code span split around link: `type: `[Foo](Foo.md)
+    const out = proc.stdout;
+    expect(out).toMatch(/`[^`]*type/);
+    expect(out).toContain("[Foo]");
+    expect(out).toMatch(/\`[^`]*$/); // trailing backtick after link
+  });
+
+  test("code-by no match when class absent", () => {
+    const html = `<h3>plain heading</h3>`;
+    const proc = spawnSync(CONVERTER, ["h3.property"], {
+      input: html,
+      encoding: "utf-8",
+    });
+    expect(proc.status).toBe(0);
+    // Without matching class, heading is not code-wrapped
+    expect(proc.stdout).toMatch(/^### plain/);
+    expect(proc.stdout).not.toContain("`plain");
+  });
+
+  test("code-by multiple selectors", () => {
+    const html = `<h3 class="sig">a: string</h3><h3 class="property">b: number</h3>`;
+    const proc = spawnSync(CONVERTER, [".sig", "h3.property"], {
+      input: html,
+      encoding: "utf-8",
+    });
+    expect(proc.status).toBe(0);
+    const out = proc.stdout;
+    expect(out).toMatch(/### `a: string`/);
+    expect(out).toMatch(/### `b: number`/);
+  });
+
+  test("code-by preserves links inside code split", () => {
+    const html =
+      `<h3 class="property">` +
+      `<a href="/docs/api/foo/"><code>foo</code></a>` +
+      `: <a href="/docs/api/Bar/"><code>Bar</code></a></h3>`;
+    const proc = spawnSync(CONVERTER, ["h3.property"], {
+      input: html,
+      encoding: "utf-8",
+    });
+    expect(proc.status).toBe(0);
+    // Links should be preserved as markdown links between code spans
+    // Output pattern: [`foo`](foo.md): [`Bar`](Bar.md)
+    const out = proc.stdout;
+    expect(out).toContain("[`foo`]");
+    expect(out).toContain("[`Bar`]");
   });
 });
 

@@ -19,9 +19,10 @@ function parseArgs(args: string[]) {
         val = "true";
       }
 
-      if (key === "selector") {
-        if (!flags["selector"]) flags["selector"] = [];
-        (flags["selector"] as string[]).push(val);
+      if (key === "selector" || key === "code-by") {
+        const k = key === "code-by" ? "codeBy" : "selector";
+        if (!flags[k]) flags[k] = [];
+        (flags[k] as string[]).push(val);
       } else if (
         key === "concurrent" ||
         key === "interval" ||
@@ -116,5 +117,27 @@ describe("parseArgs", () => {
   test("file mode detection: any flag = file", () => {
     const r = parseArgs(["--force", "https://site.com/page"]);
     expect(r.hasFlags).toBe(true);
+  });
+
+  test("single code-by", () => {
+    const r = parseArgs(["--code-by=h3.property"]);
+    expect(r.flags["codeBy"]).toEqual(["h3.property"]);
+    expect(r.hasFlags).toBe(true);
+  });
+
+  test("multiple code-by", () => {
+    const r = parseArgs(["--code-by=h3.property", "--code-by=.signature"]);
+    expect(r.flags["codeBy"]).toEqual(["h3.property", ".signature"]);
+    expect(r.hasFlags).toBe(true);
+  });
+
+  test("code-by with selector", () => {
+    const r = parseArgs([
+      "--code-by=h3.property",
+      "--selector=div.content",
+      "--url-base=https://x.com/docs/",
+    ]);
+    expect(r.flags["codeBy"]).toEqual(["h3.property"]);
+    expect(r.flags["selector"]).toEqual(["div.content"]);
   });
 });
