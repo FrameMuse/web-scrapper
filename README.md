@@ -86,6 +86,7 @@ scrape \
 | `--interval` | `int` | 200 | Milliseconds between batches |
 | `--offset` | `int` | 0 | Skip first N URLs after filter |
 | `--limit` | `int` |  | Only scrape N URLs total |
+| `--code-by` | `string`, repeatable |  | CSS selector for elements to format as inline code. Links inside preserved as markdown links between code spans |
 | `--force` | flag |  | Skip cache, re-scrape all |
 | `--dry-run` | flag |  | Print matched URLs, don't fetch |
 | `--output` | `string` | `.` | Output directory |
@@ -115,6 +116,20 @@ Use `--match` when CSS selector is not precise enough:
 ```bash
 --match='<div class="content">([\s\S]*?)</article>'
 ```
+
+## HTML to Markdown features
+
+Built-in automatic transformations (no flags needed):
+
+| Source HTML | Output |
+|---|---|
+| `<h3 class="property">...<a>link</a>...</h3>` | `` `text before`[link](url)`text after` `` — code split around links |
+| `theme-admonition-note, -tip, -warning, etc.` | `> [!NOTE]`, `> [!TIP]`, `> [!WARNING]` — GFM alerts |
+| `<pre class="prism-code language-ts">` | ` ```ts ` — language class preserved on code fence |
+| `<hr>` | `---` |
+| `<br>` inside `<pre>` | newlines preserved |
+
+Use `--code-by="h3.property"` to mark additional elements for code-split formatting.
 
 ### Closing boundary
 
@@ -167,6 +182,7 @@ scrape \
   --sitemap="https://developers.figma.com/sitemap.xml" \
   --selector="div.theme-doc-markdown.markdown" \
   --selector="div#__blog-post-container.markdown" \
+  --code-by="h3.property" \
   --url-base="https://developers.figma.com/docs/plugins/" \
   --concurrent=10 \
   --interval=200 \

@@ -16,6 +16,7 @@ scrape \
   --sitemap="https://developers.figma.com/sitemap.xml" \
   --selector="div.theme-doc-markdown.markdown" \
   --selector="div#__blog-post-container.markdown" \
+  --code-by="h3.property" \
   --url-base="https://developers.figma.com/docs/plugins/" \
   --concurrent=10 \
   --interval=200 \
@@ -36,6 +37,7 @@ scrape \
 | `--offset=N` | skip first N URLs |
 | `--limit=N` | scrape N URLs total |
 | `--force` | skip cache, re-scrape all |
+| `--code-by="SEL"` | repeatable. CSS selector for elements to format as inline code. Links inside preserved as markdown links between code spans |
 | `--dry-run` | preview only |
 | `--output="DIR"` | output directory (default `.`) |
 
