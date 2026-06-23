@@ -40,9 +40,10 @@ function parseArgs() {
       }
 
       // Repeatable flags
-      if (key === "selector") {
-        if (!flags["selector"]) flags["selector"] = [];
-        (flags["selector"] as string[]).push(val);
+      if (key === "selector" || key === "code-by") {
+        const k = key === "code-by" ? "codeBy" : "selector";
+        if (!flags[k]) flags[k] = [];
+        (flags[k] as string[]).push(val);
       } else if (key === "concurrent" || key === "interval" || key === "offset" || key === "limit") {
         flags[key] = parseInt(val, 10);
       } else {
@@ -63,6 +64,7 @@ function expandTilde(s: string): string {
 }
 
 const selector = (flags["selector"] as string[]) ?? [];
+const codeBy = (flags["codeBy"] as string[]) ?? [];
 const matchRe = flags["match"] as string | undefined;
 const urlBase = flags["url-base"] as string | undefined;
 const urlFilter = (flags["url-filter"] as string) ?? urlBase;
@@ -88,7 +90,8 @@ const resolvedBaseUrl = urlBase || urlFilter || (singleUrl ? singleUrl : "");
 // ---- helpers ----
 
 async function htmlToMd(html: string): Promise<string> {
-  const proc = spawnSync(CONVERTER, [], { input: html, encoding: "utf-8" });
+  const converterArgs = codeBy.length > 0 ? codeBy : [];
+  const proc = spawnSync(CONVERTER, converterArgs, { input: html, encoding: "utf-8" });
   if (proc.error) throw new Error(`Converter failed: ${proc.error.message}`);
   const out = (proc.stdout ?? "").trimEnd();
   if (proc.status !== 0)

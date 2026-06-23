@@ -2,20 +2,124 @@ use std::io::Read;
 use scraper::{Html, ElementRef, Node as ScraperNode};
 use turndown_cdp::{TurndownService, Node, HeadingStyle, CodeBlockStyle};
 
-fn convert_node(node: &ego_tree::NodeRef<'_, ScraperNode>) -> Option<Node> {
+struct CodeByRule {
+    tag: Option<String>,
+    class: Option<String>,
+}
+
+fn parse_code_by_rule(s: &str) -> CodeByRule {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() == 1 {
+        if parts[0].starts_with('.') {
+            CodeByRule { tag: None, class: Some(parts[0][1..].to_string()) }
+        } else {
+            CodeByRule { tag: Some(parts[0].to_string()), class: None }
+        }
+    } else if parts[0].is_empty() {
+        CodeByRule { tag: None, class: Some(parts[1].to_string()) }
+    } else {
+        CodeByRule { tag: Some(parts[0].to_string()), class: Some(parts[1].to_string()) }
+    }
+}
+
+fn matches_code_by(elem: ElementRef, rules: &[CodeByRule]) -> bool {
+    let tag: &str = elem.value().name.local.as_ref();
+    let class = elem.attr("class");
+    rules.iter().any(|r| {
+        if let Some(ref rt) = r.tag {
+            if !tag.eq_ignore_ascii_case(rt) { return false; }
+        }
+        if let Some(ref rc) = r.class {
+            if class.map_or(true, |c| !c.split_whitespace().any(|w| w == rc)) { return false; }
+        }
+        true
+    })
+}
+
+/// Walk children of a code-by matched element, splitting around <a> tags
+fn convert_code_by_element(node: &ego_tree::NodeRef<'_, ScraperNode>, elem: ElementRef, rules: &[CodeByRule]) -> Node {
+    let inner = elem.value();
+    let tag: &str = inner.name.local.as_ref();
+    let attrs: Vec<(&str, &str)> = inner.attrs.iter().map(|(name, val)| {
+        let k: &str = name.local.as_ref();
+        let v: &str = val.as_ref();
+        (k, v)
+    }).collect();
+    let mut result = if attrs.is_empty() { Node::element(tag) } else { Node::element_with_attrs(tag, attrs) };
+
+    let mut buf = String::new();
+
+    let flush = |buf: &mut String, parent: &mut Node| {
+        if !buf.is_empty() {
+            let mut code = Node::element("code");
+            code.add_child(Node::text(&buf));
+            parent.add_child(code);
+            buf.clear();
+        }
+    };
+
+    for child in node.children() {
+        match child.value() {
+            ScraperNode::Text(text) => {
+                buf.push_str(text.text.as_ref());
+            }
+            ScraperNode::Element(_) => {
+                if let Some(child_ref) = ElementRef::wrap(child) {
+                    let child_tag: &str = child_ref.value().name.local.as_ref();
+                    if child_tag == "a" {
+                        flush(&mut buf, &mut result);
+                        if let Some(link) = convert_node(&child, rules) {
+                            result.add_child(link);
+                        }
+                    } else if child_tag == "br" {
+                        buf.push('\n');
+                    } else {
+                        buf.push_str(&collect_text(&child));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    flush(&mut buf, &mut result);
+    result
+}
+
+fn collect_text(node: &ego_tree::NodeRef<'_, ScraperNode>) -> String {
+    let mut out = String::new();
+    for child in node.children() {
+        match child.value() {
+            ScraperNode::Text(text) => { out.push_str(text.text.as_ref()); }
+            ScraperNode::Element(elem) => {
+                if elem.name.local.as_ref() == "br" {
+                    out.push('\n');
+                } else {
+                    out.push_str(&collect_text(&child));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn convert_node(node: &ego_tree::NodeRef<'_, ScraperNode>, rules: &[CodeByRule]) -> Option<Node> {
     match node.value() {
         ScraperNode::Text(text) => {
             let s = text.text.as_ref();
-            if s.is_empty() {
-                return None;
-            }
+            if s.is_empty() { return None; }
             Some(Node::text(s))
         }
         ScraperNode::Element(elem) => {
             let tag: &str = elem.name.local.as_ref();
+            if tag == "br" { return Some(Node::text("\n")); }
 
-            if tag == "br" {
-                return Some(Node::text("\n"));
+            // Check --code-by match
+            if let Some(elem_ref) = ElementRef::wrap(*node) {
+                if matches_code_by(elem_ref, rules) {
+                    return Some(convert_code_by_element(node, elem_ref, rules));
+                }
             }
 
             let attrs: Vec<(&str, &str)> = elem.attrs().collect();
@@ -26,7 +130,7 @@ fn convert_node(node: &ego_tree::NodeRef<'_, ScraperNode>) -> Option<Node> {
                     .and_then(|c| c.split_whitespace().find(|s| s.starts_with("language-")));
                 let mut result = Node::element_with_attrs(tag, attrs);
                 for child in node.children() {
-                    if let Some(mut child_node) = convert_node(&child) {
+                    if let Some(mut child_node) = convert_node(&child, rules) {
                         if let Some(lang) = pre_lang {
                             if child_node.tag_name() == "code"
                                 && child_node.attr("class").map_or(true, |c| !c.contains(lang))
@@ -49,7 +153,7 @@ fn convert_node(node: &ego_tree::NodeRef<'_, ScraperNode>) -> Option<Node> {
             };
 
             for child in node.children() {
-                if let Some(child_node) = convert_node(&child) {
+                if let Some(child_node) = convert_node(&child, rules) {
                     result.add_child(child_node);
                 }
             }
@@ -60,7 +164,7 @@ fn convert_node(node: &ego_tree::NodeRef<'_, ScraperNode>) -> Option<Node> {
     }
 }
 
-fn convert_element(elem: ElementRef) -> Node {
+fn convert_element(elem: ElementRef, rules: &[CodeByRule]) -> Node {
     let tag: &str = elem.value().name.local.as_ref();
     let attrs: Vec<(&str, &str)> = elem.value().attrs().collect();
     let mut node = if attrs.is_empty() {
@@ -70,7 +174,7 @@ fn convert_element(elem: ElementRef) -> Node {
     };
 
     for child in elem.children() {
-        if let Some(child_node) = convert_node(&child) {
+        if let Some(child_node) = convert_node(&child, rules) {
             node.add_child(child_node);
         }
     }
@@ -79,6 +183,9 @@ fn convert_element(elem: ElementRef) -> Node {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let rules: Vec<CodeByRule> = args[1..].iter().map(|s| parse_code_by_rule(s)).collect();
+
     let mut html = String::new();
     std::io::stdin().read_to_string(&mut html).expect("Failed to read stdin");
 
@@ -93,7 +200,7 @@ fn main() {
         ..Default::default()
     });
 
-    let node = convert_element(root);
+    let node = convert_element(root, &rules);
     match service.turndown(&node) {
         Ok(md) => println!("{}", md),
         Err(e) => {
