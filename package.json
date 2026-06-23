@@ -1,0 +1,9 @@
+{
+  "name": "web-scrapper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cli": "bun scripts/cli.ts"
+  }
+}
