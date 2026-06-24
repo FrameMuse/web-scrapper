@@ -10,6 +10,9 @@ export function urlToPath(url: string, urlBase: string): string {
   }
   path = path.replace(/\/+$/, "");
   if (path === "") path = "index";
+  if (u.search) {
+    path += "_" + u.search.replace(/^\?/, "").replace(/&/g, "_");
+  }
   return path;
 }
 

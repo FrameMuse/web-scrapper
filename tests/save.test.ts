@@ -43,4 +43,19 @@ describe("urlToPath", () => {
     const r = urlToPath("https://site.com/docs/api-reference/", BASE);
     expect(r).toBe("api-reference");
   });
+
+  test("query string becomes part of path", () => {
+    const r = urlToPath("https://site.com/docs/page?action=history&limit=20", BASE);
+    expect(r).toBe("page_action=history_limit=20");
+  });
+
+  test("single query param", () => {
+    const r = urlToPath("https://site.com/docs/page?ref=nav", BASE);
+    expect(r).toBe("page_ref=nav");
+  });
+
+  test("no query preserves original path", () => {
+    const r = urlToPath("https://site.com/docs/page/", BASE);
+    expect(r).toBe("page");
+  });
 });
