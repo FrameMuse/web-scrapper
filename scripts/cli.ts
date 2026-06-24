@@ -101,6 +101,7 @@ const useChrome = flags["chrome"] === "true";
 const outputDir = expandTilde((flags["output"] as string) ?? ".");
 const buildMap = flags["build-map"] === "true";
 const buildMapPath = buildMap ? join(outputDir, "sitemap.json") : undefined;
+const skipQuery = flags["skip-query"] === "true";
 const singleUrl = positional[0];
 
 if (buildMap && !followLinks) {
@@ -320,9 +321,10 @@ function extractAllRawLinks(html: string, baseUrl: string): Array<{ original: st
   while ((m = re.exec(html)) !== null) {
     try {
       const resolved = new URL(m[1], baseUrl).href;
-      const normalized = normalizeUrl(resolved);
+      const clean = skipQuery ? resolved.replace(/\?.*$/, "") : resolved;
+      const normalized = normalizeUrl(clean);
       if (!urlFilter || normalized.startsWith(normalizeUrl(urlFilter))) {
-        raw.push({ original: resolved, normalized });
+        raw.push({ original: clean, normalized });
       }
     } catch {}
   }
@@ -368,11 +370,12 @@ async function crawlLinks(): Promise<void> {
   }
 
   writeFile(outputDir + "/.keep", "");
-  const startNormalized = normalizeUrl(singleUrl!);
+  const startUrl = skipQuery ? singleUrl!.replace(/\?.*$/, "") : singleUrl!;
+  const startNormalized = normalizeUrl(startUrl);
   const processed = new Set<string>();
   const visited = new Set<string>([startNormalized]);
   // Use normalized URL for map consistency — all keys share the same format
-  const queue: Array<{ original: string; normalized: string }> = [{ original: singleUrl!, normalized: startNormalized }];
+  const queue: Array<{ original: string; normalized: string }> = [{ original: startUrl, normalized: startNormalized }];
   const map = buildMapPath ? loadLinkMap(buildMapPath) : null;
   if (map) registerMapSave(() => saveLinkMap(buildMapPath!, map));
 
