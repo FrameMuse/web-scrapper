@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";
-import { fetchHtml, setChromeEnabled, getChromeSession } from "../lib/fetchHtml.ts";
+import { fetchHtml, setChromeEnabled } from "../lib/fetchHtml.ts";
 import { extract } from "../lib/extract.ts";
 import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
@@ -80,15 +80,8 @@ const useChrome = flags["chrome"] === "true";
 const outputDir = expandTilde((flags["output"] as string) ?? ".");
 const singleUrl = positional[0];
 
-let resolvedConcurrent = concurrent;
-if (useChrome) {
-  if (concurrent > 1) {
-    console.error("  --chrome forces concurrent=1 (single browser tab)");
-  }
-  resolvedConcurrent = 1;
-}
-
-if (useChrome) setChromeEnabled(true);
+const resolvedConcurrent = concurrent;
+if (useChrome) setChromeEnabled(true, concurrent);
 
 const pipeMode = !hasFlags && !!singleUrl;
 
@@ -246,19 +239,23 @@ async function singlePage(): Promise<void> {
   await scrapeOne(singleUrl!);
 }
 
+function normalizeUrl(u: string): string {
+  // Strip hash
+  const hashIdx = u.indexOf("#");
+  if (hashIdx !== -1) u = u.substring(0, hashIdx);
+  return u.replace(/\/+$/, "") + "/";
+}
+
 function extractLinks(html: string, baseUrl: string): string[] {
   const links: string[] = [];
   const re = /<a\b[^>]*href="([^"]*)"[^>]*>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
     try {
-      // Normalize: trailing slash for path-like URLs, remove hash
-      let resolved = new URL(m[1], baseUrl).href;
-      const hashIdx = resolved.indexOf("#");
-      if (hashIdx !== -1) resolved = resolved.substring(0, hashIdx);
-      if (!resolved.endsWith("/")) resolved += "/";
-      if (!urlFilter || resolved.startsWith(urlFilter)) {
-        links.push(resolved);
+      const resolved = new URL(m[1], baseUrl).href;
+      const normalized = normalizeUrl(resolved);
+      if (!urlFilter || normalized.startsWith(normalizeUrl(urlFilter))) {
+        links.push({ original: resolved, normalized });
       }
     } catch {}
   }
@@ -276,11 +273,10 @@ async function crawlLinks(): Promise<void> {
   }
 
   writeFile(outputDir + "/.keep", "");
-  // Ensure trailing slash for consistent dedup
-  const startUrl = singleUrl!.replace(/\/?$/, "/");
+  const startNormalized = normalizeUrl(singleUrl!);
   const processed = new Set<string>();
-  const visited = new Set<string>([startUrl]);
-  const queue: string[] = [startUrl];
+  const visited = new Set<string>([startNormalized]);
+  const queue: Array<{ original: string }> = [{ original: singleUrl! }];
 
   while (queue.length > 0 && (limit === undefined || processed.size < limit)) {
     const batch = queue.splice(
@@ -289,7 +285,7 @@ async function crawlLinks(): Promise<void> {
     );
 
     const results = await Promise.allSettled(
-      batch.map(async (url) => {
+      batch.map(async ({ original: url }) => {
         if (processed.has(url)) return;
         processed.add(url);
 
@@ -297,11 +293,11 @@ async function crawlLinks(): Promise<void> {
 
         // Discover new links
         const discovered = extractLinks(html, url);
-        for (const link of discovered) {
-          if (!visited.has(link)) {
-            visited.add(link);
+        for (const { original: linkUrl, normalized } of discovered) {
+          if (!visited.has(normalized)) {
+            visited.add(normalized);
             if (limit === undefined || processed.size + queue.length < limit) {
-              queue.push(link);
+              queue.push({ original: linkUrl });
             }
           }
         }
