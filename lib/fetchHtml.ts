@@ -116,7 +116,7 @@ class CdpConnection {
 // ---- Chrome tab = one page with its own CDP connection ----
 
 const blockedTypes = new Set([
-  "Font", "Media", "Image", "WebSocket", "Manifest",
+  "Font", "Media", "Image", "WebSocket", "Manifest", "Stylesheet",
 ]);
 
 const adPatterns = [
