@@ -148,6 +148,10 @@ export function extract(
   selectors: string[],
   matchRe?: string
 ): Extracted | null {
+  // Strip script and style blocks for reliable tag balancing
+  html = html.replace(/<script\b[^>]*?>[\s\S]*?<\/script\s*>/gi, "");
+  html = html.replace(/<style\b[^>]*?>[\s\S]*?<\/style\s*>/gi, "");
+
   let contentHtml: string | null = null;
   const useSelectors = selectors.length > 0 ? selectors : DEFAULT_SELECTORS;
 
