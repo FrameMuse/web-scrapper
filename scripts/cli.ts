@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";
-import { fetchHtml, setChromeEnabled } from "../lib/fetchHtml.ts";
+import { fetchHtml, setChromeEnabled, getChromeSession } from "../lib/fetchHtml.ts";
 import { extract } from "../lib/extract.ts";
 import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
@@ -80,6 +80,14 @@ const useChrome = flags["chrome"] === "true";
 const outputDir = expandTilde((flags["output"] as string) ?? ".");
 const singleUrl = positional[0];
 
+let resolvedConcurrent = concurrent;
+if (useChrome) {
+  if (concurrent > 1) {
+    console.error("  --chrome forces concurrent=1 (single browser tab)");
+  }
+  resolvedConcurrent = 1;
+}
+
 if (useChrome) setChromeEnabled(true);
 
 const pipeMode = !hasFlags && !!singleUrl;
@@ -152,8 +160,8 @@ function filterUrls(urls: string[]): string[] {
 async function batchProcess(urls: string[]): Promise<void> {
   console.error(`Scraping ${urls.length} pages...`);
 
-  for (let i = 0; i < urls.length; i += concurrent) {
-    const batch = urls.slice(i, i + concurrent);
+  for (let i = 0; i < urls.length; i += resolvedConcurrent) {
+    const batch = urls.slice(i, i + resolvedConcurrent);
     const labels = batch.map(
       (u) => `[${i + batch.indexOf(u) + 1}/${urls.length}]`
     );
@@ -169,7 +177,7 @@ async function batchProcess(urls: string[]): Promise<void> {
       })
     );
 
-    if (i + concurrent < urls.length) {
+    if (i + resolvedConcurrent < urls.length) {
       await Bun.sleep(interval);
     }
   }
@@ -277,7 +285,7 @@ async function crawlLinks(): Promise<void> {
   while (queue.length > 0 && (limit === undefined || processed.size < limit)) {
     const batch = queue.splice(
       0,
-      Math.min(concurrent, limit !== undefined ? limit - processed.size : concurrent)
+      Math.min(resolvedConcurrent, limit !== undefined ? limit - processed.size : resolvedConcurrent)
     );
 
     const results = await Promise.allSettled(
