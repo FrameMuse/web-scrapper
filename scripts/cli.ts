@@ -40,8 +40,9 @@ function parseArgs() {
       }
 
       // Repeatable flags
-      if (key === "selector" || key === "code-by") {
-        const k = key === "code-by" ? "codeBy" : "selector";
+      if (key === "selector" || key === "code-by" || key === "exclude") {
+        const map: Record<string, string> = { "code-by": "codeBy", exclude: "exclude" };
+        const k = map[key] || "selector";
         if (!flags[k]) flags[k] = [];
         (flags[k] as string[]).push(val);
       } else if (key === "concurrent" || key === "interval" || key === "offset" || key === "limit") {
@@ -65,6 +66,7 @@ function expandTilde(s: string): string {
 
 const selector = (flags["selector"] as string[]) ?? [];
 const codeBy = (flags["codeBy"] as string[]) ?? [];
+const exclude = (flags["exclude"] as string[]) ?? [];
 const matchRe = flags["match"] as string | undefined;
 const urlBase = flags["url-base"] as string | undefined;
 const urlFilter = (flags["url-filter"] as string) ?? urlBase;
@@ -91,6 +93,45 @@ if (hasFlags && !urlBase && !urlFilter) {
 }
 
 const resolvedBaseUrl = urlBase || urlFilter || (singleUrl ? singleUrl : "");
+
+// ---- link filters ----
+
+const MEDIA_EXTENSIONS = [
+  ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp", ".ico",
+  ".mp4", ".webm", ".avi", ".mov", ".mkv",
+  ".mp3", ".wav", ".ogg", ".flac",
+  ".pdf", ".doc", ".docx", ".zip", ".rar", ".7z", ".tar", ".gz",
+  ".css", ".js", ".json", ".xml", ".rss", ".atom",
+];
+
+function isMediaLink(url: string): boolean {
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    return MEDIA_EXTENSIONS.some((ext) => path.endsWith(ext));
+  } catch { return false; }
+}
+
+function isExcluded(url: string): boolean {
+  return exclude.some((p) => {
+    try { return new RegExp(p).test(url); } catch { return false; }
+  });
+}
+
+const mimeCache = new Map<string, boolean>();
+
+async function isMediaMime(url: string): Promise<boolean> {
+  if (mimeCache.has(url)) return mimeCache.get(url)!;
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    const ct = res.headers.get("content-type") || "";
+    const result = /^(image|video|audio)\//i.test(ct);
+    mimeCache.set(url, result);
+    return result;
+  } catch {
+    mimeCache.set(url, false);
+    return false;
+  }
+}
 
 // ---- helpers ----
 
@@ -246,8 +287,8 @@ function normalizeUrl(u: string): string {
   return u.replace(/\/+$/, "") + "/";
 }
 
-function extractLinks(html: string, baseUrl: string): string[] {
-  const links: string[] = [];
+async function extractLinks(html: string, baseUrl: string): Promise<Array<{ original: string; normalized: string }>> {
+  const raw: Array<{ original: string; normalized: string }> = [];
   const re = /<a\b[^>]*href="([^"]*)"[^>]*>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
@@ -255,11 +296,35 @@ function extractLinks(html: string, baseUrl: string): string[] {
       const resolved = new URL(m[1], baseUrl).href;
       const normalized = normalizeUrl(resolved);
       if (!urlFilter || normalized.startsWith(normalizeUrl(urlFilter))) {
-        links.push({ original: resolved, normalized });
+        raw.push({ original: resolved, normalized });
       }
     } catch {}
   }
-  return links;
+
+  // Deduplicate by normalized URL before applying filters
+  const seen = new Set<string>();
+  const candidates = raw.filter(({ normalized }) => {
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+
+  // Extension filter (fast, no network)
+  const result: Array<{ original: string; normalized: string }> = [];
+  const mimeCheck: Array<{ original: string; normalized: string }> = [];
+  for (const link of candidates) {
+    if (isMediaLink(link.original) || isExcluded(link.original)) continue;
+    mimeCheck.push(link);
+  }
+
+  // MIME check (network, lazy)
+  for (const link of mimeCheck) {
+    if (!(await isMediaMime(link.original))) {
+      result.push(link);
+    }
+  }
+
+  return result;
 }
 
 async function crawlLinks(): Promise<void> {
@@ -292,7 +357,7 @@ async function crawlLinks(): Promise<void> {
         const html = await fetchHtml(url);
 
         // Discover new links
-        const discovered = extractLinks(html, url);
+        const discovered = await extractLinks(html, url);
         for (const { original: linkUrl, normalized } of discovered) {
           if (!visited.has(normalized)) {
             visited.add(normalized);
