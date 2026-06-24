@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";
-import { fetchHtml, setChromeEnabled } from "../lib/fetchHtml.ts";
+import { fetchHtml, setChromeEnabled, getChromeSession } from "../lib/fetchHtml.ts";
 import { extract } from "../lib/extract.ts";
 import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
@@ -407,25 +407,29 @@ async function crawlLinks(): Promise<void> {
 
 // ---- main ----
 
-if (followLinks) {
-  await crawlLinks();
-} else if (sitemapUrl) {
-  if (pipeMode) {
-    console.error("--sitemap requires --output for batch mode");
+try {
+  if (followLinks) {
+    await crawlLinks();
+  } else if (sitemapUrl) {
+    if (pipeMode) {
+      console.error("--sitemap requires --output for batch mode");
+      process.exit(1);
+    }
+    await batchFromSitemap();
+  } else if (singleUrl) {
+    await singlePage();
+  } else if (dryRun) {
+    console.error("--dry-run requires --sitemap, --follow-links, or a URL argument");
+    process.exit(1);
+  } else {
+    console.error("Usage:");
+    console.error("  scrape <url>                                               # pipe mode: stdout + auto-detect selectors");
+    console.error("  scrape --selector=... <url>                                 # file mode: write .md, auto output dir");
+    console.error("  scrape --selector=... --url-base=... <url>                  # file mode with link rewriting");
+    console.error("  scrape --sitemap=URL --selector=... --url-base=... --output=DIR  # batch from sitemap");
+    console.error("  scrape <url> --follow-links --url-base=... --output=DIR      # batch from link crawling");
     process.exit(1);
   }
-  await batchFromSitemap();
-} else if (singleUrl) {
-  await singlePage();
-} else if (dryRun) {
-  console.error("--dry-run requires --sitemap, --follow-links, or a URL argument");
-  process.exit(1);
-} else {
-  console.error("Usage:");
-  console.error("  scrape <url>                                               # pipe mode: stdout + auto-detect selectors");
-  console.error("  scrape --selector=... <url>                                 # file mode: write .md, auto output dir");
-  console.error("  scrape --selector=... --url-base=... <url>                  # file mode with link rewriting");
-  console.error("  scrape --sitemap=URL --selector=... --url-base=... --output=DIR  # batch from sitemap");
-  console.error("  scrape <url> --follow-links --url-base=... --output=DIR      # batch from link crawling");
-  process.exit(1);
+} finally {
+  getChromeSession()?.close();
 }

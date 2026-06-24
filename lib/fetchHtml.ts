@@ -2,6 +2,18 @@ import { existsSync, mkdirSync } from "fs";
 
 let chromeSession: ChromeSession | null = null;
 
+process.on("exit", () => {
+  chromeSession?.close();
+});
+process.on("SIGINT", () => {
+  chromeSession?.close();
+  process.exit(130);
+});
+process.on("SIGTERM", () => {
+  chromeSession?.close();
+  process.exit(143);
+});
+
 export function setChromeEnabled(v: boolean, nTabs = 1): void {
   if (v && !chromeSession) {
     chromeSession = new ChromeSession();
@@ -107,14 +119,16 @@ class ChromeTab {
 
     // Capture content-type of the main-document response
     const mimeType = await new Promise<string>((resolve) => {
-      const timer = setTimeout(() => resolve(""), 10000);
+      let done = false;
+      const timer = setTimeout(() => { done = true; this.cdp.onEvent = null; resolve(""); }, 10000);
       const handler = (msg: any) => {
         if (msg.method === "Network.responseReceived") {
-          const resp = msg.params?.response;
-          if (resp?.type === "Document" && resp?.mimeType) {
+          const params = msg.params;
+          if (params?.type === "Document" && params?.response?.mimeType) {
             clearTimeout(timer);
+            done = true;
             this.cdp.onEvent = null;
-            resolve(resp.mimeType);
+            resolve(params.response.mimeType);
           }
         }
       };
@@ -187,8 +201,9 @@ export class ChromeSession {
       "--disable-gpu",
       `--remote-debugging-port=${CDP_PORT}`,
       "about:blank",
-    ], { stdio: ["ignore", "pipe", "pipe"] });
+    ], { stdio: ["ignore", "ignore", "pipe"] });
 
+    proc.unref();
     this.proc = proc;
 
     // Extract browser WebSocket URL from stderr
@@ -241,6 +256,7 @@ export class ChromeSession {
           const match = text.match(/DevTools listening on (ws:\/\/[^\s]+)/);
           if (match) {
             clearTimeout(timer);
+            reader.cancel();
             resolve(match[1]);
           } else {
             read();
