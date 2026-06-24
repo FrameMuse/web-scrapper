@@ -115,50 +115,53 @@ class CdpConnection {
 
 // ---- Chrome tab = one page with its own CDP connection ----
 
+const blockedTypes = new Set([
+  "Font", "Media", "Image", "WebSocket", "Manifest",
+]);
+
+const adPatterns = [
+  /doubleclick\.net/i, /googlesyndication\.com/i,
+  /google-analytics\.com/i, /googletagmanager\.com/i,
+  /facebook\.com\/tr/i, /quantserve\.com/i,
+  /scorecardresearch\.com/i, /amazon-adsystem\.com/i,
+  /criteo\.com/i, /criteo\.net/i, /taboola\.com/i,
+  /outbrain\.com/i, /casalemedia\.com/i,
+];
+
 class ChromeTab {
   cdp: CdpConnection;
   ready: boolean = false;
 
   constructor(cdp: CdpConnection) {
     this.cdp = cdp;
+    // Register request blocker once per tab lifetime
+    this.cdp.on("Fetch.requestPaused", (msg: any) => this.handleRequest(msg));
+  }
+
+  private handleRequest(msg: any): void {
+    const { requestId, request } = msg.params;
+    const type = request?.type || "";
+    const reqUrl = request?.url || "";
+    if (
+      blockedTypes.has(type) ||
+      adPatterns.some((p) => p.test(reqUrl))
+    ) {
+      this.cdp.send("Fetch.failRequest", {
+        requestId, errorReason: "BlockedByClient",
+      });
+    } else {
+      this.cdp.send("Fetch.continueRequest", { requestId });
+    }
   }
 
   async navigate(url: string): Promise<{ html: string; contentType: string }> {
     await this.cdp.call("Page.enable");
     await this.cdp.call("Network.enable");
 
-    // Enable request interception
+    // Enable request interception (idempotent per session)
     await this.cdp.call("Fetch.enable", {
       patterns: [{ urlPattern: "*", requestStage: "Request" }],
     });
-
-    const blockedTypes = new Set([
-      "Font", "Media", "Image", "WebSocket", "Manifest",
-    ]);
-
-    const adPatterns = [
-      /doubleclick\.net/i, /googlesyndication\.com/i,
-      /google-analytics\.com/i, /googletagmanager\.com/i,
-      /facebook\.com\/tr/i, /quantserve\.com/i,
-      /scorecardresearch\.com/i, /amazon-adsystem\.com/i,
-      /criteo\.com/i, /criteo\.net/i, /taboola\.com/i,
-      /outbrain\.com/i, /casalemedia\.com/i,
-    ];
-
-    const onRequest = (msg: any) => {
-      const { requestId, request } = msg.params;
-      const type = request?.type || "";
-      const reqUrl = request?.url || "";
-      if (blockedTypes.has(type) || adPatterns.some((p) => p.test(reqUrl))) {
-        this.cdp.send("Fetch.failRequest", {
-          requestId, errorReason: "BlockedByClient",
-        });
-      } else {
-        this.cdp.send("Fetch.continueRequest", { requestId });
-      }
-    };
-
-    this.cdp.on("Fetch.requestPaused", onRequest);
 
     // Capture content-type of the main-document response
     const mimeType = await new Promise<string>((resolve) => {
@@ -168,6 +171,7 @@ class ChromeTab {
           const params = msg.params;
           if (params?.type === "Document" && params?.response?.mimeType) {
             clearTimeout(timer);
+            this.cdp.off("Network.responseReceived", onResponse);
             resolve(params.response.mimeType);
           }
         }
