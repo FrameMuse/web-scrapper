@@ -31,6 +31,7 @@ export function getChromeSession(): ChromeSession | null {
 }
 
 const CHROME_PROFILE = "/tmp/scrape-chrome-profile";
+const BLOCKER_EXT = process.env.HOME + "/.config/scrape/blocker";
 const CDP_PORT = 9223;
 const USER_AGENT =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -51,6 +52,7 @@ class CdpConnection {
   private msgId = 1;
   private pending = new Map<number, (val: any) => void>();
   private _ready = false;
+  private listeners = new Map<string, Set<(msg: any) => void>>();
 
   get ready(): boolean { return this._ready; }
 
@@ -65,15 +67,24 @@ class CdpConnection {
             this.pending.get(msg.id)!(msg);
             this.pending.delete(msg.id);
           }
-          // Also capture events for session-based listeners
-          if (this.onEvent && msg.method) this.onEvent(msg);
+          if (msg.method) {
+            const fns = this.listeners.get(msg.method);
+            if (fns) for (const fn of fns) fn(msg);
+          }
         } catch {}
       };
       this.ws.onerror = () => reject(new Error("CDP WS error"));
     });
   }
 
-  onEvent: ((msg: any) => void) | null = null;
+  on(method: string, fn: (msg: any) => void): void {
+    if (!this.listeners.has(method)) this.listeners.set(method, new Set());
+    this.listeners.get(method)!.add(fn);
+  }
+
+  off(method: string, fn: (msg: any) => void): void {
+    this.listeners.get(method)?.delete(fn);
+  }
 
   send(method: string, params?: Record<string, unknown>): number {
     const id = this.msgId++;
@@ -107,7 +118,6 @@ class CdpConnection {
 class ChromeTab {
   cdp: CdpConnection;
   ready: boolean = false;
-  private _url: string = "";
 
   constructor(cdp: CdpConnection) {
     this.cdp = cdp;
@@ -117,26 +127,55 @@ class ChromeTab {
     await this.cdp.call("Page.enable");
     await this.cdp.call("Network.enable");
 
+    // Enable request interception
+    await this.cdp.call("Fetch.enable", {
+      patterns: [{ urlPattern: "*", requestStage: "Request" }],
+    });
+
+    const blockedTypes = new Set([
+      "Font", "Media", "Image", "WebSocket", "Manifest",
+    ]);
+
+    const adPatterns = [
+      /doubleclick\.net/i, /googlesyndication\.com/i,
+      /google-analytics\.com/i, /googletagmanager\.com/i,
+      /facebook\.com\/tr/i, /quantserve\.com/i,
+      /scorecardresearch\.com/i, /amazon-adsystem\.com/i,
+      /criteo\.com/i, /criteo\.net/i, /taboola\.com/i,
+      /outbrain\.com/i, /casalemedia\.com/i,
+    ];
+
+    const onRequest = (msg: any) => {
+      const { requestId, request } = msg.params;
+      const type = request?.type || "";
+      const reqUrl = request?.url || "";
+      if (blockedTypes.has(type) || adPatterns.some((p) => p.test(reqUrl))) {
+        this.cdp.send("Fetch.failRequest", {
+          requestId, errorReason: "BlockedByClient",
+        });
+      } else {
+        this.cdp.send("Fetch.continueRequest", { requestId });
+      }
+    };
+
+    this.cdp.on("Fetch.requestPaused", onRequest);
+
     // Capture content-type of the main-document response
     const mimeType = await new Promise<string>((resolve) => {
-      let done = false;
-      const timer = setTimeout(() => { done = true; this.cdp.onEvent = null; resolve(""); }, 10000);
-      const handler = (msg: any) => {
+      const timer = setTimeout(() => resolve(""), 10000);
+      const onResponse = (msg: any) => {
         if (msg.method === "Network.responseReceived") {
           const params = msg.params;
           if (params?.type === "Document" && params?.response?.mimeType) {
             clearTimeout(timer);
-            done = true;
-            this.cdp.onEvent = null;
             resolve(params.response.mimeType);
           }
         }
       };
-      this.cdp.onEvent = handler;
+      this.cdp.on("Network.responseReceived", onResponse);
       this.cdp.call("Page.navigate", { url });
     });
 
-    // If the server returned an image, skip this page
     if (/^image\//.test(mimeType)) {
       return { html: "", contentType: mimeType };
     }
@@ -189,19 +228,21 @@ export class ChromeSession {
   async start(nTabs: number): Promise<void> {
     if (!existsSync(CHROME_PROFILE)) mkdirSync(CHROME_PROFILE, { recursive: true });
 
-    // Launch headed Chrome, capture stderr for browser WS URL
-    const proc = Bun.spawn([
+    // Launch headed Chrome with blocker extension
+    const chromeArgs = [
       "google-chrome-stable",
       `--user-data-dir=${CHROME_PROFILE}`,
       "--no-first-run",
       "--no-remote",
       "--disable-default-apps",
-      "--disable-extensions",
       "--disable-sync",
       "--disable-gpu",
       `--remote-debugging-port=${CDP_PORT}`,
+      `--load-extension=${BLOCKER_EXT}`,
       "about:blank",
-    ], { stdio: ["ignore", "ignore", "pipe"] });
+    ];
+
+    const proc = Bun.spawn(chromeArgs, { stdio: ["ignore", "ignore", "pipe"] });
 
     proc.unref();
     this.proc = proc;
