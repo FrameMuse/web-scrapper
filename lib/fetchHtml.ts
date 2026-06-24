@@ -204,7 +204,7 @@ class ChromeTab {
       if (title && !/just a moment/i.test(title)) {
         return this.cdp.evaluate("document.documentElement.outerHTML");
       }
-      await Bun.sleep(1000);
+    await Bun.sleep(100);
     }
     return null;
   }
