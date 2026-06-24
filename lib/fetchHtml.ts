@@ -103,7 +103,30 @@ class ChromeTab {
 
   async navigate(url: string): Promise<string> {
     await this.cdp.call("Page.enable");
-    const navResult = await this.cdp.call("Page.navigate", { url });
+    await this.cdp.call("Network.enable");
+
+    // Capture content-type of the main-document response
+    const mimeType = await new Promise<string>((resolve) => {
+      const timer = setTimeout(() => resolve(""), 10000);
+      const handler = (msg: any) => {
+        if (msg.method === "Network.responseReceived") {
+          const resp = msg.params?.response;
+          if (resp?.type === "Document" && resp?.mimeType) {
+            clearTimeout(timer);
+            this.cdp.onEvent = null;
+            resolve(resp.mimeType);
+          }
+        }
+      };
+      this.cdp.onEvent = handler;
+      this.cdp.call("Page.navigate", { url });
+    });
+
+    // If the server returned an image, skip this page
+    if (/^image\//.test(mimeType)) {
+      return "";
+    }
+
     await Bun.sleep(1000);
 
     const html = await this.cdp.evaluate("document.documentElement.outerHTML");

@@ -145,6 +145,17 @@ describe("crawl fixtures", () => {
     expect(r!.description).toBe("A regular content page");
   });
 
+  test("image MIME type guard regex", () => {
+    const isImageMime = (mime: string) => /^image\//.test(mime);
+    expect(isImageMime("image/jpeg")).toBe(true);
+    expect(isImageMime("image/png")).toBe(true);
+    expect(isImageMime("image/gif")).toBe(true);
+    expect(isImageMime("image/svg+xml")).toBe(true);
+    expect(isImageMime("text/html")).toBe(false);
+    expect(isImageMime("application/pdf")).toBe(false);
+    expect(isImageMime("")).toBe(false);
+  });
+
   test("index page has <img> tags for markdown images", () => {
     const html = readFileSync(
       __dirname + "/fixtures/crawl/index.html",
