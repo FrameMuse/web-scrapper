@@ -156,6 +156,44 @@ describe("crawl fixtures", () => {
     expect(isImageMime("")).toBe(false);
   });
 
+  test("extractAllRawLinks returns all links within urlFilter scope", () => {
+    const html = readFileSync(
+      __dirname + "/fixtures/crawl/index.html",
+      "utf-8"
+    );
+
+    const urlFilter = FIXTURE_BASE;
+    function normalizeUrl(u: string): string {
+      const hashIdx = u.indexOf("#");
+      if (hashIdx !== -1) u = u.substring(0, hashIdx);
+      return u.replace(/\/+$/, "") + "/";
+    }
+    function extractAllRawLinks(html: string, baseUrl: string): string[] {
+      const raw: string[] = [];
+      const re = /<a\b[^>]*href="([^"]*)"[^>]*>/gi;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(html)) !== null) {
+        try {
+          const resolved = new URL(m[1], baseUrl).href;
+          const normalized = normalizeUrl(resolved);
+          if (!urlFilter || normalized.startsWith(normalizeUrl(urlFilter))) {
+            raw.push(normalized);
+          }
+        } catch {}
+      }
+      const seen = new Set<string>();
+      return raw.filter((u) => { if (seen.has(u)) return false; seen.add(u); return true; });
+    }
+
+    const links = extractAllRawLinks(html, FIXTURE_BASE);
+    // Should include all links including media and admin
+    expect(links).toContain(normalizeUrl(FIXTURE_BASE + "content-page.html"));
+    expect(links).toContain(normalizeUrl(FIXTURE_BASE + "assets/image.jpg"));
+    expect(links).toContain(normalizeUrl(FIXTURE_BASE + "admin/dashboard.html"));
+    expect(links).toContain(normalizeUrl(FIXTURE_BASE + "style.css"));
+    expect(links.length).toBe(9); // 10 <a>, minus 1 duplicate asset/image.jpg
+  });
+
   test("index page has <img> tags for markdown images", () => {
     const html = readFileSync(
       __dirname + "/fixtures/crawl/index.html",

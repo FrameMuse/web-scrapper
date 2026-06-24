@@ -113,7 +113,7 @@ class ChromeTab {
     this.cdp = cdp;
   }
 
-  async navigate(url: string): Promise<string> {
+  async navigate(url: string): Promise<{ html: string; contentType: string }> {
     await this.cdp.call("Page.enable");
     await this.cdp.call("Network.enable");
 
@@ -138,7 +138,7 @@ class ChromeTab {
 
     // If the server returned an image, skip this page
     if (/^image\//.test(mimeType)) {
-      return "";
+      return { html: "", contentType: mimeType };
     }
 
     await Bun.sleep(1000);
@@ -148,10 +148,10 @@ class ChromeTab {
     if (isChallengePage(html)) {
       console.error("  Captcha detected, waiting for solution...");
       const realHtml = await this.waitForContent();
-      return realHtml ?? html;
+      return { html: realHtml ?? html, contentType: mimeType };
     }
 
-    return html;
+    return { html, contentType: mimeType };
   }
 
   private async waitForContent(timeoutMs = 120000): Promise<string | null> {
@@ -279,7 +279,7 @@ export class ChromeSession {
     return [];
   }
 
-  async fetchHtml(url: string): Promise<string> {
+  async fetchHtml(url: string): Promise<{ html: string; contentType: string }> {
     await this.ready;
     const tab = await this.acquireTab();
     try {
@@ -324,7 +324,7 @@ export class ChromeSession {
 
 // ---- fetchHtml: HTTP first, then Chrome session ----
 
-export async function fetchHtml(url: string): Promise<string> {
+export async function fetchHtml(url: string): Promise<{ html: string; contentType: string }> {
   if (chromeSession) {
     return chromeSession.fetchHtml(url);
   }
@@ -335,7 +335,7 @@ export async function fetchHtml(url: string): Promise<string> {
   }
 }
 
-async function fetchWithHttp(url: string): Promise<string> {
+async function fetchWithHttp(url: string): Promise<{ html: string; contentType: string }> {
   const res = await fetch(url, {
     headers: {
       "User-Agent": USER_AGENT,
@@ -344,5 +344,8 @@ async function fetchWithHttp(url: string): Promise<string> {
     },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return res.text();
+  return {
+    html: await res.text(),
+    contentType: res.headers.get("content-type") || "",
+  };
 }

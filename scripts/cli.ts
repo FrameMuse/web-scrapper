@@ -7,6 +7,13 @@ import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
 import { mdPath, writeFile } from "../lib/save.ts";
 import {
+  loadLinkMap,
+  saveLinkMap,
+  addToMap,
+  markVisited,
+  markProcessed,
+} from "../lib/linkMap.ts";
+import {
   fetchSitemap,
   loadCachedSitemap,
   saveSitemapCache,
@@ -80,7 +87,15 @@ const dryRun = flags["dry-run"] === "true";
 const followLinks = flags["follow-links"] === "true";
 const useChrome = flags["chrome"] === "true";
 const outputDir = expandTilde((flags["output"] as string) ?? ".");
+const buildMapPath = flags["build-map"]
+  ? expandTilde(flags["build-map"] as string)
+  : undefined;
 const singleUrl = positional[0];
+
+if (buildMapPath && !followLinks) {
+  console.error("--build-map requires --follow-links");
+  process.exit(1);
+}
 
 const resolvedConcurrent = concurrent;
 if (useChrome) setChromeEnabled(true, concurrent);
@@ -146,7 +161,7 @@ async function htmlToMd(html: string): Promise<string> {
 }
 
 async function scrapeOne(url: string): Promise<void> {
-  const html = await fetchHtml(url);
+  const { html } = await fetchHtml(url);
   const extracted = extract(html, selector, matchRe);
   if (!extracted) {
     console.error(`  No content found at ${url}`);
@@ -287,8 +302,8 @@ function normalizeUrl(u: string): string {
   return u.replace(/\/+$/, "") + "/";
 }
 
-async function extractLinks(html: string, baseUrl: string): Promise<Array<{ original: string; normalized: string }>> {
-  const raw: Array<{ original: string; normalized: string }> = [];
+function extractAllRawLinks(html: string, baseUrl: string): string[] {
+  const raw: string[] = [];
   const re = /<a\b[^>]*href="([^"]*)"[^>]*>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
@@ -296,18 +311,26 @@ async function extractLinks(html: string, baseUrl: string): Promise<Array<{ orig
       const resolved = new URL(m[1], baseUrl).href;
       const normalized = normalizeUrl(resolved);
       if (!urlFilter || normalized.startsWith(normalizeUrl(urlFilter))) {
-        raw.push({ original: resolved, normalized });
+        raw.push(normalized);
       }
     } catch {}
   }
 
-  // Deduplicate by normalized URL before applying filters
+  // Deduplicate
   const seen = new Set<string>();
-  const candidates = raw.filter(({ normalized }) => {
-    if (seen.has(normalized)) return false;
-    seen.add(normalized);
+  return raw.filter((u) => {
+    if (seen.has(u)) return false;
+    seen.add(u);
     return true;
   });
+}
+
+async function extractLinks(html: string, baseUrl: string): Promise<Array<{ original: string; normalized: string }>> {
+  const candidates = extractAllRawLinks(html, baseUrl).map((normalized) => ({
+    normalized,
+    // Re-derive original for link queue (use normalized as original lookup)
+    original: normalized,
+  }));
 
   // Extension filter (fast, no network)
   const result: Array<{ original: string; normalized: string }> = [];
@@ -342,6 +365,7 @@ async function crawlLinks(): Promise<void> {
   const processed = new Set<string>();
   const visited = new Set<string>([startNormalized]);
   const queue: Array<{ original: string }> = [{ original: singleUrl! }];
+  const map = buildMapPath ? loadLinkMap(buildMapPath) : null;
 
   while (queue.length > 0 && (limit === undefined || processed.size < limit)) {
     const batch = queue.splice(
@@ -354,9 +378,14 @@ async function crawlLinks(): Promise<void> {
         if (processed.has(url)) return;
         processed.add(url);
 
-        const html = await fetchHtml(url);
+        const { html, contentType } = await fetchHtml(url);
+        if (map) markVisited(map, url, contentType);
 
-        // Discover new links
+        // Track all discovered links (before filtering)
+        const allLinks = extractAllRawLinks(html, url);
+        if (map) addToMap(map, allLinks);
+
+        // Discover new crawlable links (filtered)
         const discovered = await extractLinks(html, url);
         for (const { original: linkUrl, normalized } of discovered) {
           if (!visited.has(normalized)) {
@@ -386,6 +415,7 @@ async function crawlLinks(): Promise<void> {
         });
         const outPath = mdPath(outputDir, url, resolvedBaseUrl);
         writeFile(outPath, fm + "\n" + rewritten + "\n");
+        if (map) markProcessed(map, url);
         const rel = outPath.replace(outputDir + "/", "");
         console.error(`  \u2713 ${rel}`);
       })
@@ -396,6 +426,9 @@ async function crawlLinks(): Promise<void> {
         console.error(`  \u2717 ${r.reason}`);
       }
     }
+
+    // Save map after each batch
+    if (map) saveLinkMap(buildMapPath!, map);
 
     if (queue.length > 0) {
       await Bun.sleep(interval);

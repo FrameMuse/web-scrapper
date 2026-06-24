@@ -1,0 +1,133 @@
+import { describe, test, expect } from "bun:test";
+import { existsSync, unlinkSync } from "fs";
+import {
+  inferContentType,
+  addToMap,
+  markVisited,
+  markProcessed,
+  loadLinkMap,
+  saveLinkMap,
+} from "../lib/linkMap.ts";
+
+describe("linkMap", () => {
+  test("inferContentType known extensions", () => {
+    expect(inferContentType("https://site.com/image.jpg")).toBe("image/jpeg");
+    expect(inferContentType("https://site.com/image.jpeg")).toBe("image/jpeg");
+    expect(inferContentType("https://site.com/image.png")).toBe("image/png");
+    expect(inferContentType("https://site.com/image.gif")).toBe("image/gif");
+    expect(inferContentType("https://site.com/image.svg")).toBe("image/svg+xml");
+    expect(inferContentType("https://site.com/video.mp4")).toBe("video/mp4");
+    expect(inferContentType("https://site.com/audio.mp3")).toBe("audio/mpeg");
+    expect(inferContentType("https://site.com/doc.pdf")).toBe("application/pdf");
+    expect(inferContentType("https://site.com/style.css")).toBe("text/css");
+  });
+
+  test("inferContentType unknown returns null", () => {
+    expect(inferContentType("https://site.com/page.html")).toBeNull();
+    expect(inferContentType("https://site.com/page")).toBeNull();
+    expect(inferContentType("not-a-url")).toBeNull();
+  });
+
+  test("inferContentType case insensitive", () => {
+    expect(inferContentType("https://site.com/image.JPG")).toBe("image/jpeg");
+    expect(inferContentType("https://site.com/Image.PNG")).toBe("image/png");
+  });
+
+  test("inferContentType with query params", () => {
+    expect(inferContentType("https://site.com/image.jpg?w=200&h=100")).toBe("image/jpeg");
+  });
+
+  test("addToMap adds new URLs", () => {
+    const map = {};
+    addToMap(map, ["https://site.com/page/", "https://site.com/image.jpg"]);
+    expect(map["https://site.com/page/"]).toEqual({
+      visited: false, processed: false, contentType: null,
+    });
+    expect(map["https://site.com/image.jpg"]).toEqual({
+      visited: false, processed: false, contentType: "image/jpeg",
+    });
+  });
+
+  test("addToMap preserves existing entries", () => {
+    const map = {
+      "https://site.com/page/": { visited: true, processed: true, contentType: "text/html" },
+    };
+    addToMap(map, ["https://site.com/page/", "https://site.com/other/"]);
+    expect(map["https://site.com/page/"]).toEqual({
+      visited: true, processed: true, contentType: "text/html",
+    });
+    expect(map["https://site.com/other/"].visited).toBe(false);
+  });
+
+  test("markVisited sets visited and contentType", () => {
+    const map = {};
+    markVisited(map, "https://site.com/page/", "text/html; charset=utf-8");
+    expect(map["https://site.com/page/"]).toEqual({
+      visited: true, processed: false, contentType: "text/html; charset=utf-8",
+    });
+  });
+
+  test("markVisited overrides contentType from extension", () => {
+    const map = {
+      "https://site.com/image.jpg": { visited: false, processed: false, contentType: "image/jpeg" },
+    };
+    markVisited(map, "https://site.com/image.jpg", "image/webp");
+    expect(map["https://site.com/image.jpg"].contentType).toBe("image/webp");
+  });
+
+  test("markVisited without contentType preserves existing", () => {
+    const map = {
+      "https://site.com/page/": { visited: false, processed: false, contentType: null },
+    };
+    markVisited(map, "https://site.com/page/");
+    expect(map["https://site.com/page/"].visited).toBe(true);
+    expect(map["https://site.com/page/"].contentType).toBeNull();
+  });
+
+  test("markProcessed sets processed", () => {
+    const map = {};
+    markProcessed(map, "https://site.com/page/");
+    expect(map["https://site.com/page/"]).toEqual({
+      visited: false, processed: true, contentType: null,
+    });
+  });
+
+  test("markProcessed on existing entry preserves other fields", () => {
+    const map = {
+      "https://site.com/page/": { visited: true, processed: false, contentType: "text/html" },
+    };
+    markProcessed(map, "https://site.com/page/");
+    expect(map["https://site.com/page/"]).toEqual({
+      visited: true, processed: true, contentType: "text/html",
+    });
+  });
+
+  test("save and load round-trip", () => {
+    const path = "/tmp/scrape-test-linkmap.json";
+    try { unlinkSync(path); } catch {}
+    const map = {
+      "https://site.com/page/": { visited: true, processed: true, contentType: "text/html" },
+      "https://site.com/image.jpg": { visited: false, processed: false, contentType: "image/jpeg" },
+    };
+    saveLinkMap(path, map);
+
+    const loaded = loadLinkMap(path);
+    expect(loaded).toEqual(map);
+
+    unlinkSync(path);
+  });
+
+  test("loadLinkMap returns empty for missing file", () => {
+    const map = loadLinkMap("/tmp/scrape-test-nonexistent.json");
+    expect(map).toEqual({});
+  });
+
+  test("loadLinkMap returns empty for corrupt JSON", () => {
+    const path = "/tmp/scrape-test-corrupt.json";
+    const { writeFileSync } = require("fs");
+    writeFileSync(path, "not-json", "utf-8");
+    const map = loadLinkMap(path);
+    expect(map).toEqual({});
+    unlinkSync(path);
+  });
+});

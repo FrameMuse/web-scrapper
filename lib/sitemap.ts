@@ -5,7 +5,7 @@ import { fetchHtml } from "./fetchHtml";
 export async function fetchSitemap(
   url: string
 ): Promise<{ xml: string; urls: string[] }> {
-  const xml = await fetchHtml(url);
+  const { html: xml } = await fetchHtml(url);
   const locs = xml.match(/<loc>([^<]+)<\/loc>/g);
   if (!locs) throw new Error("No <loc> entries found in sitemap");
   const urls = locs.map((l) => l.replace(/<\/?loc>/g, ""));
