@@ -2,15 +2,16 @@
 
 Fetch web pages by CSS selector, convert HTML content to Markdown, save as `.md` files with frontmatter.
 
-Designed for batch scraping from sitemaps with incremental updates. Built with Bun and Rust (`turndown-cdp`).
+Designed for sitemap-driven batch scraping, BFS link crawling, and Cloudflare-bypassing Chrome sessions. Built with Bun and Rust (`turndown-cdp`).
 
 ## Install
 
 ```bash
+# clone and build the Rust HTML-to-MD engine (forked)
 git clone https://github.com/FrameMuse/turndown-node ~/github/myforks/turndown-node
 cd ~/github/myforks/turndown-node && cargo build --release
 
-# build Rust converter
+# build the Rust converter
 cd ~/github/mylibraries/web-scrapper/rust-converter
 cargo build --release
 
@@ -20,86 +21,66 @@ echo 'alias scrape="bun ~/github/mylibraries/web-scrapper/scripts/cli.ts"' >> ~/
 
 ## Modes
 
-Two modes controlled by presence of `--` flags:
-
-- **Pipe mode** (no `--` flags): auto-detect selectors, write markdown to stdout. Progress and errors on stderr.
-- **File mode** (any `--` flag present): explicit or auto-detect selectors, write `.md` files to `--output` directory. `--output` defaults to `.`.
-
-```bash
-# pipe mode — no flags at all
-scrape https://example.com/page > page.md
-
-# file mode — any -- flag
-scrape --selector=".content" https://example.com/page
-scrape --output="./docs" https://example.com/page
-scrape --sitemap="..." --selector=".content" --output="./docs"
-```
-
-## Usage
-
-No `--` flags. Auto-detects content container. Writes markdown to stdout.
+| Mode | Triggers | Output |
+|---|---|---|
+| Pipe | No `--` flags | Markdown to stdout |
+| File | Any `--` flag | `.md` files to `--output` dir |
+| Sitemap batch | `--sitemap` | Batch from sitemap XML |
+| Follow links | `--follow-links` | BFS crawl from seed URL |
 
 ```bash
+# pipe
 scrape https://site.com/page > page.md
-curl https://site.com/page | scrape > page.md
-```
 
-### File mode (flags present)
+# file
+scrape --selector=".content" --url-base="https://site.com/docs/" https://site.com/page
 
-Any `--` flag switches to file mode. `--output` defaults to `.`.
+# sitemap
+scrape --sitemap="https://site.com/sitemap.xml" --selector=".content" --url-base="https://site.com/docs/" --output="./docs"
 
-```bash
-# single page
-scrape \
-  --selector=".content" \
-  --url-base="https://site.com/docs/" \
-  --output="./docs" \
-  https://site.com/docs/page
-
-# sitemap batch
-scrape \
-  --sitemap="https://site.com/sitemap.xml" \
-  --selector="div.theme-doc-markdown.markdown" \
-  --url-base="https://site.com/docs/" \
-  --concurrent=10 \
-  --interval=200 \
-  --output="./docs"
-
-# dry run (preview without fetching)
-scrape \
-  --dry-run \
-  --sitemap="https://site.com/sitemap.xml" \
-  --selector=".content" \
-  --url-base="https://site.com/docs/"
+# follow links
+scrape https://site.com/ --follow-links --selector=".content" --url-base="https://site.com/" --output="./docs"
 ```
 
 ## Flags
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--selector` | `string`, repeatable |  | CSS selector for content container. Tried in order, first match wins |
-| `--match` | `string` |  | Override: explicit regex with capture group. Skips CSS conversion |
-| `--url-base` | `string` | required | Full URL prefix to strip when computing relative `.md` paths |
-| `--url-filter` | `string` | `--url-base` | Only scrape URLs starting with this string |
-| `--sitemap` | `string` |  | Sitemap XML URL for batch scraping |
-| `--concurrent` | `int` | 1 | Pages per batch. All N fire in parallel, all must finish before interval |
-| `--interval` | `int` | 200 | Milliseconds between batches |
-| `--offset` | `int` | 0 | Skip first N URLs after filter |
-| `--limit` | `int` |  | Only scrape N URLs total |
-| `--code-by` | `string`, repeatable |  | CSS selector for elements to format as inline code. Links inside preserved as markdown links between code spans |
-| `--force` | flag |  | Skip cache, re-scrape all |
-| `--dry-run` | flag |  | Print matched URLs, don't fetch |
-| `--output` | `string` | `.` | Output directory |
+| `--selector` | string, repeatable | auto-detect | CSS selector for content container. Tried in order, first match wins |
+| `--code-by` | string, repeatable | — | CSS selector for elements to format as inline code. Links inside preserved as markdown links between code spans |
+| `--match` | string | — | Explicit regex with capture group. Skips CSS conversion |
+| `--exclude` | string, repeatable | — | Regex patterns. URLs matching any pattern are not added to crawl queue |
+| `--url-base` | string | required | Full URL prefix to strip when computing relative `.md` paths |
+| `--url-filter` | string | `--url-base` | Only scrape URLs starting with this prefix |
+| `--sitemap` | string | — | Sitemap XML URL for batch scraping |
+| `--follow-links` | flag | — | BFS crawl from seed URL. Discover links from each page, deduplicate by normalized URL |
+| `--concurrent` | int | 1 | Pages per batch (tabs in Chrome mode) |
+| `--interval` | int | 200 | ms between batches |
+| `--offset` | int | 0 | Skip first N URLs after filter |
+| `--limit` | int | — | Only scrape N URLs total |
+| `--force` | flag | — | Skip cache, re-scrape all |
+| `--dry-run` | flag | — | Print matched URLs, don't fetch |
+| `--chrome` | flag | — | Enable headed Chrome with CDP tab pool (bypasses Cloudflare captcha) |
+| `--output` | string | `.` | Output directory |
+
+### Tilde expansion
+
+`--output`, `--url-base`, and other path flags expand `~` to `$HOME` automatically.
+
+## Link filtering
+
+Applied automatically to all discovered links (in both sitemap and follow-links modes):
+
+| Filter | Method | What it skips |
+|---|---|---|
+| Media extension | URL path check | `.jpg .jpeg .png .gif .svg .webp .bmp .ico .mp4 .webm .avi .mov .mkv .mp3 .wav .ogg .flac .pdf .doc .docx .zip .rar .7z .tar .gz .css .js .json .xml .rss .atom` |
+| MIME HEAD | HTTP HEAD → Content-Type | `image/*`, `video/*`, `audio/*` (cached per URL) |
+| `--exclude` | Regex on resolved URL | User-defined patterns |
+| `--url-filter` | `startsWith` | URLs outside target scope |
 
 ## Selectors
 
-CSS-like syntax. Tool converts to a regex that finds the opening tag and captures to the matching close tag.
-
-When no `--selector` or `--match` is given, auto-detect tries this chain in order:
-
-```
-article, main, .content, #content, .post, .entry, .document, body
-```
+CSS-like syntax. Tool converts to a regex that finds the opening tag and captures to matching close tag.
 
 | Selector | Matches |
 |---|---|
@@ -109,13 +90,17 @@ article, main, .content, #content, .post, .entry, .document, body
 | `div.foo` | `div` with class `foo` |
 | `div#bar.baz` | `div` with id `bar` and class `baz` |
 
-If matched element sits inside an `<article>` with a `<header>` tag before it (blog pages), the full article is captured including the H1 title and date outside the content container.
+If matched element sits inside an `<article>` with a `<header>` before it, the full article is captured (includes H1 title and date outside the content container).
 
-Use `--match` when CSS selector is not precise enough:
+### Auto-detect chain
 
-```bash
---match='<div class="content">([\s\S]*?)</article>'
-```
+When no `--selector` given: `article, main, .content, #content, .post, .entry, .document, body`
+
+### Closing boundary
+
+1. If match is inside an `<article>` with a `<header>` before it → capture full article
+2. If `<article>` exists after match → capture to `</article>`
+3. Otherwise → capture to `</TAG>` with balanced nesting
 
 ## HTML to Markdown features
 
@@ -128,14 +113,23 @@ Built-in automatic transformations (no flags needed):
 | `<pre class="prism-code language-ts">` | ` ```ts ` — language class preserved on code fence |
 | `<hr>` | `---` |
 | `<br>` inside `<pre>` | newlines preserved |
+| `<img>` | `![alt](src)` — standard markdown image syntax |
 
 Use `--code-by="h3.property"` to mark additional elements for code-split formatting.
 
-### Closing boundary
+## Chrome CDP Tab Pool
 
-1. If match is inside an `<article>` with a `<header>` before it, capture full article
-2. If `<article>` exists after match, capture to `</article>`
-3. Otherwise, capture to matching `</TAG>` with balanced nesting
+When `--chrome` is active:
+
+1. One headed Chrome process with `--remote-debugging-port=9223`
+2. Creates N tabs via `Target.createTarget` (`--concurrent=N`)
+3. Each tab has its own CDP WebSocket connection
+4. `Page.navigate` → listen for `Network.responseReceived`
+5. If MIME type `image/*` → return empty (skip)
+6. If Cloudflare challenge detected → poll `document.title` every 1s until it changes
+7. Shared profile directory → cookies persist across all tabs (captcha solved once)
+
+Captcha is solved visually in the browser window. No automated solving.
 
 ## Caching & incremental
 
@@ -155,23 +149,36 @@ No files are ever deleted. Only created or overwritten.
 
 ## Concurrency
 
-Fires N requests in parallel, waits for all to finish, then sleeps `interval` ms before next batch.
+Fires N requests in parallel, waits for all to finish, then sleeps `interval` ms before next batch. In Chrome mode, N tabs in the same browser process.
 
 ## Architecture
 
 ```
-scripts/cli.ts        arg parsing, orchestration
-├── lib/fetchHtml.ts  fetch URL → string
-├── lib/extract.ts    CSS selector → regex, content extraction
-├── lib/convert.ts    spawn Rust binary for HTML → MD
-├── lib/frontmatter.ts  YAML frontmatter
-├── lib/linkRewrite.ts  rewrite internal links to relative .md
-├── lib/save.ts       mkdir + write file
-├── lib/sitemap.ts    fetch/parse/cache/diff sitemap
+scripts/cli.ts           entry: arg parsing, orchestration
+├── lib/fetchHtml.ts     HTTP fetch + Chrome CDP session with tab pool
+├── lib/extract.ts       CSS selector → regex, content extraction
+├── lib/frontmatter.ts   YAML frontmatter generation
+├── lib/linkRewrite.ts   rewrite internal links to relative .md
+├── lib/save.ts          mkdir + write file + urlToPath
+├── lib/sitemap.ts       fetch/parse/cache/diff sitemap
 
-rust-converter/       Rust binary: stdin HTML → stdout MD
+rust-converter/          Rust binary: stdin HTML → stdout MD
   turndown-cdp + scraper (html5ever)
 ```
+
+### Dependencies
+
+- **Runtime:** Bun 1.3.14
+- **Rust converter:** `turndown-cdp` (forked crate), `scraper` (html5ever-based HTML parser)
+- **Chrome:** `google-chrome-stable` (optional, for Cloudflare bypass)
+
+### Fork
+
+The Rust converter uses a forked version of `turndown-node` at `~/github/myforks/turndown-node` (https://github.com/FrameMuse/turndown-node). Changes include:
+- `<br>` → newlines inside code blocks
+- List items with only inline content use `collect_inlines` instead of `convert_children`
+- `escape_markdown` no longer escapes `!`, `[`, `]` (needed for GFM alerts and admonitions)
+- Docusaurus admonitions → GFM alert blockquotes
 
 ## Examples
 
@@ -187,6 +194,21 @@ scrape \
   --concurrent=10 \
   --interval=200 \
   --output="./figma-docs"
+```
+
+### Fandom wiki with Chrome
+
+```bash
+scrape https://companyofheroes.fandom.com/wiki/Company_of_Heroes_Wiki \
+  --chrome \
+  --follow-links \
+  --selector="main" \
+  --exclude="/wiki/(File|Special|Category|User):" \
+  --url-base="https://companyofheroes.fandom.com/wiki/" \
+  --url-filter="https://companyofheroes.fandom.com/wiki/" \
+  --concurrent=5 \
+  --interval=300 \
+  --output="./coh1"
 ```
 
 ### Docusaurus site
@@ -211,7 +233,29 @@ scrape \
   --output="./blog"
 ```
 
+## Test suite
+
+88 tests across 8 files:
+
+| File | Tests | Coverage |
+|---|---|---|
+| `tests/extract.test.ts` | 18 | CSS parsing, regex, metadata, nested tags |
+| `tests/linkRewrite.test.ts` | 9 | Relative paths, fragments, root index |
+| `tests/save.test.ts` | 8 | urlToPath with various URL patterns |
+| `tests/frontmatter.test.ts` | 5 | YAML rendering, empty fields |
+| `tests/sitemap.test.ts` | 6 | URL diff logic |
+| `tests/cli.test.ts` | 14 | Arg parsing, pipe/file mode, code-by, exclude |
+| `tests/integration.test.ts` | 16 | Real HTML fixtures, Figma pages, code-by |
+| `tests/crawl.fixture.test.ts` | 12 | Media filters, exclude, captcha detection, MIME guard |
+
+```bash
+bun test
+```
+
+Pre-commit hook runs `bun test` automatically (`.githooks/pre-commit`).
+
 ## Related
 
 - [turndown-node fork](https://github.com/FrameMuse/turndown-node) — Rust HTML-to-MD converter used as backend
 - [turndown-cdp](https://crates.io/crates/turndown-cdp) — Rust crate for Markdown conversion
+- [scraper](https://crates.io/crates/scraper) — Rust HTML parser (html5ever)
