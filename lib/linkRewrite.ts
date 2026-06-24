@@ -15,7 +15,11 @@ export function rewriteLinks(md: string, sourceUrl: string, urlBase: string): st
     const inner = match.slice(2, -1);
     const fragment = inner.includes("#") ? inner.substring(inner.indexOf("#")) : "";
     const noFragment = fragment ? inner.substring(0, inner.indexOf("#")) : inner;
-    let target = noFragment.replace(/\/+$/, "");
+    // Detect and separate the title attribute ` "title"` at the end
+    const titleMatch = noFragment.match(/\s+"[^"]*"$/);
+    const title = titleMatch ? titleMatch[0] : "";
+    const noTitle = title ? noFragment.substring(0, noFragment.length - title.length) : noFragment;
+    let target = noTitle.replace(/\/+$/, "");
     // Normalize: add trailing slash so startsWith works for root links
     const targetWithSlash = target + "/";
     const targetRel = targetWithSlash.startsWith(basePath)
@@ -24,11 +28,11 @@ export function rewriteLinks(md: string, sourceUrl: string, urlBase: string): st
     // Link to root (e.g. /docs/) → index
     if (targetRel === "") {
       const rel = relativeDocPath(sourceRel, "index");
-      return `](${rel}.md${fragment})`;
+      return `](${rel}.md${title}${fragment})`;
     }
 
     const rel = relativeDocPath(sourceRel, targetRel);
-    return `](${rel}.md${fragment})`;
+    return `](${rel}.md${title}${fragment})`;
   });
 }
 

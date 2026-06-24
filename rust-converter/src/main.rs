@@ -193,7 +193,7 @@ fn convert_node(node: &ego_tree::NodeRef<'_, ScraperNode>, rules: &[CodeByRule])
                 }
             }
 
-            let attrs: Vec<(&str, &str)> = elem.attrs().collect();
+            let attrs: Vec<(&str, &str)> = elem.attrs().filter(|(k, _)| *k != "title").collect();
 
             // For <pre>, propagate language class to child <code> if missing
             if tag == "pre" {

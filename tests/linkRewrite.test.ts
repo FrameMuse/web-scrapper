@@ -58,4 +58,18 @@ describe("rewriteLinks", () => {
     const result = rewriteLinks(md, "https://site.com/docs/page/", BASE);
     expect(result).toContain("](page.md)");
   });
+
+  test("link with title attribute", () => {
+    const md = 'See [British Units](/wiki/Category:British_Units "Category:British Units")';
+    const result = rewriteLinks(md, "https://site.com/docs/page/", "https://site.com/wiki/");
+    // Title should be preserved but .md placed before it
+    expect(result).toContain('.md "Category:British Units")');
+    expect(result).not.toContain('.md"');
+  });
+
+  test("link without title", () => {
+    const md = "See [page](/docs/page)";
+    const result = rewriteLinks(md, "https://site.com/docs/", "https://site.com/docs/");
+    expect(result).toContain("](page.md)");
+  });
 });
