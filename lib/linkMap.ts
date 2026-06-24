@@ -89,9 +89,10 @@ export function loadLinkMap(path: string): LinkMap {
   }
 }
 
+import { renameSync } from "fs";
+
 export function saveLinkMap(path: string, map: LinkMap): void {
-  // Write atomically via temp file
   const tmp = path + ".tmp";
   writeFileSync(tmp, JSON.stringify(map, null, 2), "utf-8");
-  writeFileSync(path, readFileSync(tmp), "utf-8");
+  renameSync(tmp, path);
 }

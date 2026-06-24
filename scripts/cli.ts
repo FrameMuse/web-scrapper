@@ -6,6 +6,7 @@ import { extract } from "../lib/extract.ts";
 import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
 import { mdPath, writeFile } from "../lib/save.ts";
+import { join } from "path";
 import {
   loadLinkMap,
   saveLinkMap,
@@ -23,6 +24,17 @@ import {
 
 const CONVERTER =
   import.meta.dirname + "/../rust-converter/target/release/html-to-md";
+
+// ---- global map save for exit handlers ----
+let _pendingMapSave: (() => void) | null = null;
+
+function registerMapSave(fn: () => void): void {
+  _pendingMapSave = fn;
+}
+
+process.on("exit", () => { _pendingMapSave?.(); });
+process.on("SIGINT", () => { _pendingMapSave?.(); process.exit(130); });
+process.on("SIGTERM", () => { _pendingMapSave?.(); process.exit(143); });
 
 // ---- arg parsing ----
 
@@ -87,12 +99,11 @@ const dryRun = flags["dry-run"] === "true";
 const followLinks = flags["follow-links"] === "true";
 const useChrome = flags["chrome"] === "true";
 const outputDir = expandTilde((flags["output"] as string) ?? ".");
-const buildMapPath = flags["build-map"]
-  ? expandTilde(flags["build-map"] as string)
-  : undefined;
+const buildMap = flags["build-map"] === "true";
+const buildMapPath = buildMap ? join(outputDir, "sitemap.json") : undefined;
 const singleUrl = positional[0];
 
-if (buildMapPath && !followLinks) {
+if (buildMap && !followLinks) {
   console.error("--build-map requires --follow-links");
   process.exit(1);
 }
@@ -363,6 +374,7 @@ async function crawlLinks(): Promise<void> {
   // Use normalized URL for map consistency — all keys share the same format
   const queue: Array<{ original: string; normalized: string }> = [{ original: singleUrl!, normalized: startNormalized }];
   const map = buildMapPath ? loadLinkMap(buildMapPath) : null;
+  if (map) registerMapSave(() => saveLinkMap(buildMapPath!, map));
 
   while (queue.length > 0 && (limit === undefined || processed.size < limit)) {
     const batch = queue.splice(
@@ -433,6 +445,8 @@ async function crawlLinks(): Promise<void> {
     }
   }
 
+  // Final save after loop finishes
+  if (map) saveLinkMap(buildMapPath!, map);
   console.error(`Done. ${processed.size} pages scraped.`);
 }
 
