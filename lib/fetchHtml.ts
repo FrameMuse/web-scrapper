@@ -30,7 +30,7 @@ export function getChromeSession(): ChromeSession | null {
   return chromeSession;
 }
 
-const CHROME_PROFILE = "/tmp/scrape-chrome-profile";
+const CHROME_PROFILE = process.env.HOME + "/.config/scrape/chrome-profile";
 const BLOCKER_EXT = process.env.HOME + "/.config/scrape/blocker";
 const CDP_PORT = 9223;
 const USER_AGENT =
