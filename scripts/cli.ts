@@ -302,8 +302,8 @@ function normalizeUrl(u: string): string {
   return u.replace(/\/+$/, "") + "/";
 }
 
-function extractAllRawLinks(html: string, baseUrl: string): string[] {
-  const raw: string[] = [];
+function extractAllRawLinks(html: string, baseUrl: string): Array<{ original: string; normalized: string }> {
+  const raw: Array<{ original: string; normalized: string }> = [];
   const re = /<a\b[^>]*href="([^"]*)"[^>]*>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
@@ -311,26 +311,22 @@ function extractAllRawLinks(html: string, baseUrl: string): string[] {
       const resolved = new URL(m[1], baseUrl).href;
       const normalized = normalizeUrl(resolved);
       if (!urlFilter || normalized.startsWith(normalizeUrl(urlFilter))) {
-        raw.push(normalized);
+        raw.push({ original: resolved, normalized });
       }
     } catch {}
   }
 
-  // Deduplicate
+  // Deduplicate by normalized URL
   const seen = new Set<string>();
-  return raw.filter((u) => {
-    if (seen.has(u)) return false;
-    seen.add(u);
+  return raw.filter(({ normalized }) => {
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
     return true;
   });
 }
 
 async function extractLinks(html: string, baseUrl: string): Promise<Array<{ original: string; normalized: string }>> {
-  const candidates = extractAllRawLinks(html, baseUrl).map((normalized) => ({
-    normalized,
-    // Re-derive original for link queue (use normalized as original lookup)
-    original: normalized,
-  }));
+  const candidates = extractAllRawLinks(html, baseUrl);
 
   // Extension filter (fast, no network)
   const result: Array<{ original: string; normalized: string }> = [];
@@ -364,7 +360,8 @@ async function crawlLinks(): Promise<void> {
   const startNormalized = normalizeUrl(singleUrl!);
   const processed = new Set<string>();
   const visited = new Set<string>([startNormalized]);
-  const queue: Array<{ original: string }> = [{ original: singleUrl! }];
+  // Use normalized URL for map consistency — all keys share the same format
+  const queue: Array<{ original: string; normalized: string }> = [{ original: singleUrl!, normalized: startNormalized }];
   const map = buildMapPath ? loadLinkMap(buildMapPath) : null;
 
   while (queue.length > 0 && (limit === undefined || processed.size < limit)) {
@@ -374,16 +371,17 @@ async function crawlLinks(): Promise<void> {
     );
 
     const results = await Promise.allSettled(
-      batch.map(async ({ original: url }) => {
-        if (processed.has(url)) return;
-        processed.add(url);
+      batch.map(async ({ original: url, normalized: normUrl }) => {
+        if (processed.has(normUrl)) return;
+        processed.add(normUrl);
 
         const { html, contentType } = await fetchHtml(url);
-        if (map) markVisited(map, url, contentType);
+        // Use normalized URL as map key for consistency
+        if (map) markVisited(map, normUrl, contentType);
 
         // Track all discovered links (before filtering)
         const allLinks = extractAllRawLinks(html, url);
-        if (map) addToMap(map, allLinks);
+        if (map) addToMap(map, allLinks.map((l) => l.normalized));
 
         // Discover new crawlable links (filtered)
         const discovered = await extractLinks(html, url);
@@ -391,7 +389,7 @@ async function crawlLinks(): Promise<void> {
           if (!visited.has(normalized)) {
             visited.add(normalized);
             if (limit === undefined || processed.size + queue.length < limit) {
-              queue.push({ original: linkUrl });
+              queue.push({ original: linkUrl, normalized });
             }
           }
         }
@@ -415,7 +413,7 @@ async function crawlLinks(): Promise<void> {
         });
         const outPath = mdPath(outputDir, url, resolvedBaseUrl);
         writeFile(outPath, fm + "\n" + rewritten + "\n");
-        if (map) markProcessed(map, url);
+        if (map) markProcessed(map, normUrl);
         const rel = outPath.replace(outputDir + "/", "");
         console.error(`  \u2713 ${rel}`);
       })

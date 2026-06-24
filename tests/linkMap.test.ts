@@ -130,4 +130,49 @@ describe("linkMap", () => {
     expect(map).toEqual({});
     unlinkSync(path);
   });
+
+  test("map keys are always fully qualified URLs", () => {
+    const map = {};
+
+    // Simulate a crawl: initial URL discovered and visited
+    const initialUrl = "https://site.com/wiki/SomePage";
+    const initialNorm = "https://site.com/wiki/SomePage/";
+
+    addToMap(map, [initialNorm]);
+    markVisited(map, initialNorm, "text/html");
+    markProcessed(map, initialNorm);
+
+    // Simulate discovering links from the page
+    const discovered = [
+      "https://site.com/wiki/OtherPage/",
+      "https://site.com/wiki/AnotherPage/",
+      "https://site.com/assets/image.jpg",
+    ];
+    addToMap(map, discovered);
+
+    // All keys must have proper scheme
+    for (const key of Object.keys(map)) {
+      expect(key).toMatch(/^[a-z]+:\/\//);
+      expect(key).not.toMatch(/^\/\//);
+    }
+
+    // The initial URL is stored with normalized key, matching discovered links' format
+    expect(map[initialNorm].visited).toBe(true);
+    expect(map[initialNorm].processed).toBe(true);
+  });
+
+  test("non-normalized input URL is stored under normalized key", () => {
+    const map = {};
+    const rawInput = "https://site.com/wiki/Page";
+    const normInput = "https://site.com/wiki/Page/";
+
+    // Simulate what crawlLinks does: normalize before storing in map
+    markVisited(map, normInput, "text/html");
+    markProcessed(map, normInput);
+
+    expect(map[normInput].visited).toBe(true);
+    expect(map[normInput].processed).toBe(true);
+    // The raw input should NOT have a separate entry
+    expect(map[rawInput]).toBeUndefined();
+  });
 });

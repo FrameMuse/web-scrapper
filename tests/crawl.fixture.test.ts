@@ -168,8 +168,8 @@ describe("crawl fixtures", () => {
       if (hashIdx !== -1) u = u.substring(0, hashIdx);
       return u.replace(/\/+$/, "") + "/";
     }
-    function extractAllRawLinks(html: string, baseUrl: string): string[] {
-      const raw: string[] = [];
+    function extractAllRawLinks(html: string, baseUrl: string): Array<{ original: string; normalized: string }> {
+      const raw: Array<{ original: string; normalized: string }> = [];
       const re = /<a\b[^>]*href="([^"]*)"[^>]*>/gi;
       let m: RegExpExecArray | null;
       while ((m = re.exec(html)) !== null) {
@@ -177,21 +177,32 @@ describe("crawl fixtures", () => {
           const resolved = new URL(m[1], baseUrl).href;
           const normalized = normalizeUrl(resolved);
           if (!urlFilter || normalized.startsWith(normalizeUrl(urlFilter))) {
-            raw.push(normalized);
+            raw.push({ original: resolved, normalized });
           }
         } catch {}
       }
       const seen = new Set<string>();
-      return raw.filter((u) => { if (seen.has(u)) return false; seen.add(u); return true; });
+      return raw.filter(({ normalized }) => { if (seen.has(normalized)) return false; seen.add(normalized); return true; });
     }
 
     const links = extractAllRawLinks(html, FIXTURE_BASE);
+    const normalizedLinks = links.map((l) => l.normalized);
+
     // Should include all links including media and admin
-    expect(links).toContain(normalizeUrl(FIXTURE_BASE + "content-page.html"));
-    expect(links).toContain(normalizeUrl(FIXTURE_BASE + "assets/image.jpg"));
-    expect(links).toContain(normalizeUrl(FIXTURE_BASE + "admin/dashboard.html"));
-    expect(links).toContain(normalizeUrl(FIXTURE_BASE + "style.css"));
+    expect(normalizedLinks).toContain(normalizeUrl(FIXTURE_BASE + "content-page.html"));
+    expect(normalizedLinks).toContain(normalizeUrl(FIXTURE_BASE + "assets/image.jpg"));
+    expect(normalizedLinks).toContain(normalizeUrl(FIXTURE_BASE + "admin/dashboard.html"));
+    expect(normalizedLinks).toContain(normalizeUrl(FIXTURE_BASE + "style.css"));
     expect(links.length).toBe(9); // 10 <a>, minus 1 duplicate asset/image.jpg
+
+    // All URLs must be fully qualified (no leading /, no originless paths)
+    for (const link of links) {
+      expect(link.original).toMatch(/^[a-z]+:\/\//);
+      expect(link.normalized).toMatch(/^[a-z]+:\/\//);
+      // No double slashes or origin-relative paths
+      expect(link.original).not.toMatch(/^\/\//);
+      expect(link.normalized).not.toMatch(/^\/\//);
+    }
   });
 
   test("index page has <img> tags for markdown images", () => {
