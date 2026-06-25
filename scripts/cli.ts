@@ -368,11 +368,30 @@ async function crawlLinks(): Promise<void> {
   const startUrl = skipQuery ? singleUrl!.replace(/\?.*$/, "") : singleUrl!;
   const startNormalized = normalizeUrl(startUrl);
   const processed = new Set<string>();
-  const visited = new Set<string>([startNormalized]);
+  const visited = new Set<string>();
   // Use normalized URL for map consistency — all keys share the same format
-  const queue: Array<{ original: string; normalized: string }> = [{ original: startUrl, normalized: startNormalized }];
+  const queue: Array<{ original: string; normalized: string }> = [];
   const map = buildMapPath ? loadLinkMap(buildMapPath) : null;
   if (map) registerMapSave(() => saveLinkMap(buildMapPath!, map));
+
+  // Resume from link map if present
+  if (map && map.size > 0) {
+    for (const [normUrl, entry] of map) {
+      if (entry.visited) {
+        visited.add(normUrl);
+        if (!entry.processed) {
+          queue.push({ original: entry.url || normUrl, normalized: normUrl });
+        }
+      }
+      if (entry.processed) {
+        processed.add(normUrl);
+      }
+    }
+    console.error(`Resuming ${queue.length} unprocessed of ${visited.size} discovered URLs.`);
+  } else {
+    visited.add(startNormalized);
+    queue.push({ original: startUrl, normalized: startNormalized });
+  }
 
   let visitedCount = 0;
   let processedCount = 0;
@@ -402,7 +421,7 @@ async function crawlLinks(): Promise<void> {
         const { html, contentType } = await fetchHtml(url);
 
         // Use normalized URL as map key for consistency
-        if (map) markVisited(map, normUrl, contentType);
+        if (map) markVisited(map, normUrl, contentType, url);
 
         // Track all discovered links (before filtering)
         const allLinks = extractAllRawLinks(html, url, urlFilter, skipQuery);

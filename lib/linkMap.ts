@@ -4,6 +4,7 @@ export interface LinkEntry {
   visited: boolean;
   processed: boolean;
   contentType: string | null;
+  url?: string;
 }
 
 export type LinkMap = Record<string, LinkEntry>;
@@ -63,13 +64,14 @@ export function addToMap(map: LinkMap, urls: string[]): void {
   }
 }
 
-export function markVisited(map: LinkMap, url: string, contentType?: string): void {
+export function markVisited(map: LinkMap, url: string, contentType?: string, originalUrl?: string): void {
   if (!map[url]) {
-    map[url] = { visited: true, processed: false, contentType: contentType ?? null };
+    map[url] = { visited: true, processed: false, contentType: contentType ?? null, url: originalUrl };
     return;
   }
   map[url].visited = true;
   if (contentType) map[url].contentType = contentType;
+  if (originalUrl) map[url].url = originalUrl;
 }
 
 export function markProcessed(map: LinkMap, url: string): void {
