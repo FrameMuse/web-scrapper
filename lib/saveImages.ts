@@ -241,7 +241,7 @@ export class ImageDownloader {
       } else if (data.type === "error") {
         log("ERROR", data.message);
       } else if (data.type === "timing") {
-        log("TIMING", `Image ${data.url}: ${data.ms}ms`);
+        log("TIMING", `Image ${data.url}: ${data.ms}ms`, true);
       }
     };
   }
