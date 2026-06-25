@@ -225,10 +225,14 @@ export class ImageDownloader {
     this.outputDir = outputDir;
   }
 
+  enqueued = 0;
+  completed = 0;
+
   enqueue(url: string): void {
     if (this.seen.has(url)) return;
     this.seen.add(url);
     this.queue.push(url);
+    this.enqueued++;
   }
 
   start(): void {
@@ -306,6 +310,7 @@ export class ImageDownloader {
       // Ensure directory exists
       mkdirSync(dir, { recursive: true });
       writeFileSync(localPath, buf);
+      this.completed++;
 
       // If local path lacks extension, append from MIME
       if (!localPath.match(/\.[a-z0-9]+$/i)) {

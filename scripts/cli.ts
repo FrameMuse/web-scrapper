@@ -223,8 +223,6 @@ async function scrapeOne(url: string): Promise<void> {
   } else {
     const outPath = mdPath(outputDir, url, resolvedBaseUrl);
     writeFile(outPath, output);
-    const rel = outPath.replace(outputDir + "/", "");
-    console.error(`  \u2713 ${rel}`);
   }
 }
 
@@ -374,6 +372,20 @@ async function crawlLinks(): Promise<void> {
   const map = buildMapPath ? loadLinkMap(buildMapPath) : null;
   if (map) registerMapSave(() => saveLinkMap(buildMapPath!, map));
 
+  let visitedCount = 0;
+  let processedCount = 0;
+
+  function progress() {
+    const total = visited.size;
+    const v = `visited: ${String(visitedCount).padStart(3)}/${total}`;
+    const p = `processed: ${String(processedCount).padStart(3)}/${Math.max(visitedCount, 1)}`;
+    let line = `  ${v}, ${p}`;
+    if (imageDownloader) {
+      line += `, images: ${imageDownloader.completed}/${imageDownloader.enqueued}`;
+    }
+    process.stderr.write(`\r${line}`);
+  }
+
   while (queue.length > 0 && (limit === undefined || processed.size < limit)) {
     const batch = queue.splice(
       0,
@@ -386,6 +398,7 @@ async function crawlLinks(): Promise<void> {
         processed.add(normUrl);
 
         const { html, contentType } = await fetchHtml(url);
+        visitedCount++;
         // Use normalized URL as map key for consistency
         if (map) markVisited(map, normUrl, contentType);
 
@@ -407,7 +420,8 @@ async function crawlLinks(): Promise<void> {
         // Scrape content
         const extracted = extract(html, selector, matchRe);
         if (!extracted) {
-          console.error(`  No content found at ${url}`);
+          console.error(`\n  No content found at ${url}`);
+          progress();
           return;
         }
 
@@ -436,14 +450,15 @@ async function crawlLinks(): Promise<void> {
         const outPath = mdPath(outputDir, url, resolvedBaseUrl);
         writeFile(outPath, fm + "\n" + rewritten + "\n");
         if (map) markProcessed(map, normUrl);
-        const rel = outPath.replace(outputDir + "/", "");
-        console.error(`  \u2713 ${rel}`);
+        processedCount++;
+        progress();
       })
     );
 
     for (const r of results) {
       if (r.status === "rejected") {
-        console.error(`  \u2717 ${r.reason}`);
+        console.error(`\n  \u2717 ${r.reason}`);
+        progress();
       }
     }
 
@@ -457,7 +472,8 @@ async function crawlLinks(): Promise<void> {
 
   // Final save after loop finishes
   if (map) saveLinkMap(buildMapPath!, map);
-  console.error(`Done. ${processed.size} pages scraped.`);
+  process.stderr.write("\n");
+  console.error(`Done. ${processedCount} pages scraped.`);
 }
 
 // ---- main ----
