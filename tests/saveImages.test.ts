@@ -167,7 +167,7 @@ describe("HTML image extraction", () => {
   test("preprocessImages enqueues discovered images", () => {
     const html = readFileSync(FIXTURE, "utf-8");
     const enqueued: string[] = [];
-    const result = preprocessImages(html, BASE, (url, w, h) => {
+    const result = preprocessImages(html, BASE, "/tmp", (url, w, h) => {
       enqueued.push(url);
     });
 
@@ -179,7 +179,7 @@ describe("HTML image extraction", () => {
 
   test("preprocessImages replaces inline <svg> with <img>", () => {
     const html = readFileSync(FIXTURE, "utf-8");
-    const result = preprocessImages(html, BASE, () => {});
+    const result = preprocessImages(html, BASE, "/tmp", () => {});
     expect(result).not.toContain("<svg");
     expect(result).toContain('<img src="_inline/');
   });
@@ -187,7 +187,7 @@ describe("HTML image extraction", () => {
   test("preprocessImages replaces data: URLs with local paths", () => {
     const html = readFileSync(FIXTURE, "utf-8");
     const enqueued: string[] = [];
-    const result = preprocessImages(html, BASE, () => {});
+    const result = preprocessImages(html, BASE, "/tmp", () => {});
     // The original data: URL should be replaced
     expect(result).not.toContain("data:image/png;base64,");
     // The replacement should have _data/ path
@@ -197,7 +197,7 @@ describe("HTML image extraction", () => {
   test("preprocessImages resolves relative src against pageUrl", () => {
     const html = '<img src="assets/photo.jpg">';
     const enqueued: string[] = [];
-    preprocessImages(html, "https://site.com/wiki/Page", (url) => {
+    preprocessImages(html, "https://site.com/wiki/Page", "/tmp", (url) => {
       enqueued.push(url);
     });
     expect(enqueued.length).toBe(1);
@@ -207,7 +207,7 @@ describe("HTML image extraction", () => {
   test("width and height attrs passed to enqueue", () => {
     const html = '<img src="https://cdn.com/photo.jpg" width="400" height="300">';
     const enqueued: Array<{ url: string; w?: number; h?: number }> = [];
-    preprocessImages(html, "https://base.com/", (url, w, h) => {
+    preprocessImages(html, "https://base.com/", "/tmp", (url, w, h) => {
       enqueued.push({ url, w, h });
     });
     expect(enqueued[0].w).toBe(400);
@@ -274,10 +274,11 @@ describe("inline SVG extraction", () => {
 
   test("preprocessImages replaces svg with img tag", () => {
     const html = readFileSync(__dirname + "/fixtures/crawl/images-page.html", "utf-8");
-    const result = preprocessImages(html, "https://base.com/", () => {});
+    const result = preprocessImages(html, "https://base.com/", "/tmp", () => {});
     expect(result).not.toContain("<svg");
     expect(result).toContain('src="_inline/');
   });
+
 });
 
 describe("data URL extraction", () => {
@@ -293,7 +294,7 @@ describe("data URL extraction", () => {
 
   test("preprocessImages replaces data-url src with file path", () => {
     const html = '<img src="data:image/png;base64,iVBOR" alt="Dot">';
-    const result = preprocessImages(html, "https://base.com/", () => {});
+    const result = preprocessImages(html, "https://base.com/", "/tmp", () => {});
     expect(result).not.toContain("data:image/png");
     expect(result).toContain('src="_data/');
   });

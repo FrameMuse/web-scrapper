@@ -10,8 +10,13 @@ export const IMAGE_EXTENSIONS = new Set([
 export function isImageUrl(url: string): boolean {
   try {
     const path = new URL(url).pathname.toLowerCase();
-    for (const ext of IMAGE_EXTENSIONS) {
-      if (path.endsWith(ext)) return true;
+    // Check if any path segment (before query/hash) has an image extension
+    // Handles: /file.png, /file.png/revision/latest, /file.png?w=200
+    const segments = path.replace(/[?#].*$/, "").split("/");
+    for (const seg of segments) {
+      for (const ext of IMAGE_EXTENSIONS) {
+        if (seg.endsWith(ext)) return true;
+      }
     }
     return false;
   } catch {
@@ -78,6 +83,7 @@ function shortHash(s: string): string {
 export function preprocessImages(
   html: string,
   pageUrl: string,
+  outputDir: string,
   enqueue: (url: string, width?: number, height?: number) => void,
 ): string {
   // 1. Process <img> tags
@@ -132,8 +138,12 @@ export function preprocessImages(
     (match: string) => {
       const hash = shortHash(match);
       const svgContent = '<?xml version="1.0" encoding="UTF-8"?>\n' + match;
-      // Will be saved when the image downloader picks it up
-      // For now, queue it as a special inline entry
+      const fullPath = join(outputDir, "images", "_inline", `${hash}.svg`);
+      const dir = dirname(fullPath);
+      if (!existsSync(fullPath)) {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(fullPath, svgContent);
+      }
       const localPath = `_inline/${hash}.svg`;
       return `<img src="${localPath}" alt="">`;
     },
@@ -147,10 +157,12 @@ export function preprocessImages(
       const raw = Buffer.from(b64, "base64");
       const hash = shortHash(raw.toString("base64"));
       const localPath = `_data/${hash}${ext}`;
-      // Save inline immediately (it's already decoded)
-      const fullPath = join("images", "_data", `${hash}${ext}`);
-      // We'll return the img tag with local src — the downloader
-      // will skip it since file already exists
+      const fullPath = join(outputDir, "images", "_data", `${hash}${ext}`);
+      const dir = dirname(fullPath);
+      if (!existsSync(fullPath)) {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(fullPath, raw);
+      }
       return `src="${localPath}"`;
     },
   );
