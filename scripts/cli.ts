@@ -389,7 +389,7 @@ async function crawlLinks(): Promise<void> {
         processed.add(normUrl);
 
         const { html, contentType } = await fetchHtml(url);
-        visitedCount++;
+
         // Use normalized URL as map key for consistency
         if (map) markVisited(map, normUrl, contentType);
 
@@ -415,6 +415,7 @@ async function crawlLinks(): Promise<void> {
           progress();
           return;
         }
+        visitedCount++;
 
         let contentHtml = extracted.contentHtml;
         // Preprocess images before HTML-to-MD conversion
