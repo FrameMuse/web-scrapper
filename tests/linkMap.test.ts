@@ -175,4 +175,141 @@ describe("linkMap", () => {
     // The raw input should NOT have a separate entry
     expect(map[rawInput]).toBeUndefined();
   });
+
+  test("markVisited stores originalUrl", () => {
+    const map = {};
+    const norm = "https://site.com/wiki/Page/";
+    markVisited(map, norm, "text/html", "https://site.com/wiki/Page");
+    expect(map[norm].visited).toBe(true);
+    expect(map[norm].url).toBe("https://site.com/wiki/Page");
+  });
+
+  test("markVisited without originalUrl leaves url undefined", () => {
+    const map = {};
+    markVisited(map, "https://site.com/wiki/Page/", "text/html");
+    expect(map["https://site.com/wiki/Page/"].url).toBeUndefined();
+  });
+
+  test("markVisited updates originalUrl if provided", () => {
+    const map = {
+      "https://site.com/wiki/Page/": { visited: false, processed: false, contentType: null },
+    };
+    markVisited(map, "https://site.com/wiki/Page/", "text/html", "https://site.com/wiki/Page");
+    expect(map["https://site.com/wiki/Page/"].url).toBe("https://site.com/wiki/Page");
+  });
+
+  test("markVisited does not overwrite originalUrl if not provided", () => {
+    const map = {
+      "https://site.com/wiki/Page/": { visited: false, processed: false, contentType: null, url: "https://site.com/wiki/Page" },
+    };
+    markVisited(map, "https://site.com/wiki/Page/", "text/html");
+    expect(map["https://site.com/wiki/Page/"].url).toBe("https://site.com/wiki/Page");
+  });
+});
+
+describe("resume from link map", () => {
+  function simulateResume(map: Record<string, any>) {
+    const processed = new Set<string>();
+    const visited = new Set<string>();
+    const queue: Array<{ original: string; normalized: string }> = [];
+
+    if (map && Object.keys(map).length > 0) {
+      for (const [normUrl, entry] of Object.entries(map)) {
+        if ((entry as any).visited) {
+          visited.add(normUrl);
+          if (!(entry as any).processed) {
+            queue.push({ original: (entry as any).url || normUrl, normalized: normUrl });
+          }
+        }
+        if ((entry as any).processed) {
+          processed.add(normUrl);
+        }
+      }
+    }
+
+    return { processed, visited, queue };
+  }
+
+  test("resume with mixed state populates correctly", () => {
+    const map = {
+      "https://site.com/wiki/Done/": { visited: true, processed: true, contentType: "text/html" },
+      "https://site.com/wiki/Unprocessed/": { visited: true, processed: false, contentType: "text/html" },
+      "https://site.com/wiki/NotVisited/": { visited: false, processed: false, contentType: null },
+      "https://site.com/image.jpg": { visited: false, processed: false, contentType: "image/jpeg" },
+    };
+
+    const { processed, visited, queue } = simulateResume(map);
+
+    expect(processed.has("https://site.com/wiki/Done/")).toBe(true);
+    expect(processed.has("https://site.com/wiki/Unprocessed/")).toBe(false);
+    expect(processed.size).toBe(1);
+
+    expect(visited.has("https://site.com/wiki/Done/")).toBe(true);
+    expect(visited.has("https://site.com/wiki/Unprocessed/")).toBe(true);
+    expect(visited.has("https://site.com/wiki/NotVisited/")).toBe(false);
+    expect(visited.size).toBe(2);
+
+    expect(queue.length).toBe(1);
+    expect(queue[0].normalized).toBe("https://site.com/wiki/Unprocessed/");
+  });
+
+  test("resume with all processed yields empty queue", () => {
+    const map = {
+      "https://site.com/wiki/A/": { visited: true, processed: true, contentType: "text/html" },
+      "https://site.com/wiki/B/": { visited: true, processed: true, contentType: "text/html" },
+    };
+
+    const { processed, visited, queue } = simulateResume(map);
+
+    expect(processed.size).toBe(2);
+    expect(visited.size).toBe(2);
+    expect(queue.length).toBe(0);
+  });
+
+  test("resume with no processed yields full queue", () => {
+    const map = {
+      "https://site.com/wiki/A/": { visited: true, processed: false, contentType: "text/html" },
+      "https://site.com/wiki/B/": { visited: true, processed: false, contentType: "text/html" },
+    };
+
+    const { processed, visited, queue } = simulateResume(map);
+
+    expect(processed.size).toBe(0);
+    expect(visited.size).toBe(2);
+    expect(queue.length).toBe(2);
+  });
+
+  test("resume uses stored originalUrl when available", () => {
+    const map = {
+      "https://site.com/wiki/Page/": {
+        visited: true, processed: false, contentType: "text/html",
+        url: "https://site.com/wiki/Page", // non-normalized original
+      },
+    };
+
+    const { queue } = simulateResume(map);
+    expect(queue[0].original).toBe("https://site.com/wiki/Page");
+    expect(queue[0].normalized).toBe("https://site.com/wiki/Page/");
+  });
+
+  test("resume falls back to normalized when no originalUrl", () => {
+    const map = {
+      "https://site.com/wiki/Page/": { visited: true, processed: false, contentType: "text/html" },
+    };
+
+    const { queue } = simulateResume(map);
+    expect(queue[0].original).toBe("https://site.com/wiki/Page/");
+  });
+
+  test("resume with empty map starts fresh", () => {
+    const startUrl = "https://site.com/wiki/Start";
+    const startNorm = "https://site.com/wiki/Start/";
+
+    const map = {};
+    const { processed, visited, queue } = simulateResume(map);
+
+    expect(processed.size).toBe(0);
+    expect(visited.size).toBe(0);
+    expect(queue.length).toBe(0);
+  });
 });
