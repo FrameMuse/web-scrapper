@@ -8,7 +8,7 @@ import { rewriteLinks } from "../lib/linkRewrite.ts";
 import { mdPath, writeFile } from "../lib/save.ts";
 import { join } from "path";
 import { LinkDb } from "../lib/linkDb.ts";
-import { initLogger, log, getRunId } from "../lib/runLogger.ts";
+import { initLogger, log, getRunId, setLoggerDb } from "../lib/runLogger.ts";
 import {
   fetchSitemap,
   loadCachedSitemap,
