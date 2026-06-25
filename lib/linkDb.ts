@@ -93,6 +93,27 @@ export class LinkDb {
     writeFileSync(outputPath, JSON.stringify({ urlBase, entries }));
   }
 
+  importJson(inputPath: string): void {
+    const data = JSON.parse(readFileSync(inputPath, "utf-8"));
+    const urlBase: string = data.urlBase || "";
+    const entries: [string, string, number][] = data.entries || [];
+
+    const insert = this.db.prepare(
+      "INSERT OR REPLACE INTO links (url, ct, visited, processed) VALUES (?, ?, ?, ?)",
+    );
+
+    const tx = this.db.transaction(() => {
+      for (const [uri, ct, flags] of entries) {
+        const url = urlBase ? urlBase + uri : uri;
+        const visited = flags & LinkFlags.Visited ? 1 : 0;
+        const processed = flags & LinkFlags.Processed ? 1 : 0;
+        insert.run(url, ct, visited, processed);
+      }
+    });
+
+    tx();
+  }
+
   close(): void {
     this.db.close();
   }

@@ -212,4 +212,68 @@ describe("LinkDb", () => {
     unlinkSync(jsonPath);
     db.close();
   });
+
+  test("round-trip: export → import → verify", () => {
+    const p = tmpPath();
+    const db = new LinkDb(p);
+    db.append("https://site.com/wiki/A", "text/html");
+    db.markVisited("https://site.com/wiki/A");
+    db.markProcessed("https://site.com/wiki/A");
+
+    db.append("https://site.com/wiki/B", "text/html");
+    db.markVisited("https://site.com/wiki/B");
+
+    db.append("https://site.com/wiki/C", "text/html");
+    // not visited, not processed
+
+    const jsonPath = p.replace(".sqlite.db", ".json");
+    db.exportJson(jsonPath, "https://site.com/wiki/");
+    db.close();
+
+    // Import into a fresh DB
+    const p2 = tmpPath();
+    const db2 = new LinkDb(p2);
+    db2.importJson(jsonPath);
+
+    expect(db2.size()).toBe(3);
+    expect(db2.visitedSet().has("https://site.com/wiki/A")).toBe(true);
+    expect(db2.processedSet().has("https://site.com/wiki/A")).toBe(true);
+    expect(db2.visitedSet().has("https://site.com/wiki/B")).toBe(true);
+    expect(db2.processedSet().has("https://site.com/wiki/B")).toBe(false);
+    expect(db2.visitedSet().has("https://site.com/wiki/C")).toBe(false);
+    expect(db2.processedSet().has("https://site.com/wiki/C")).toBe(false);
+
+    const queue = db2.unprocessedVisited();
+    expect(queue).toEqual(["https://site.com/wiki/B"]);
+
+    unlinkSync(jsonPath);
+    db2.close();
+  });
+
+  test("round-trip: export → import resume works", () => {
+    const p = tmpPath();
+    const db = new LinkDb(p);
+    db.append("https://site.com/wiki/Unprocessed1", "text/html");
+    db.markVisited("https://site.com/wiki/Unprocessed1");
+    db.append("https://site.com/wiki/Unprocessed2", "text/html");
+    db.markVisited("https://site.com/wiki/Unprocessed2");
+    db.append("https://site.com/wiki/Done", "text/html");
+    db.markVisited("https://site.com/wiki/Done");
+    db.markProcessed("https://site.com/wiki/Done");
+
+    const jsonPath = p.replace(".sqlite.db", ".json");
+    db.exportJson(jsonPath, "https://site.com/wiki/");
+    db.close();
+
+    // Import and resume
+    const p2 = tmpPath();
+    const db2 = new LinkDb(p2);
+    db2.importJson(jsonPath);
+
+    const queue = db2.unprocessedVisited();
+    expect(queue.sort()).toEqual(["https://site.com/wiki/Unprocessed1", "https://site.com/wiki/Unprocessed2"]);
+
+    unlinkSync(jsonPath);
+    db2.close();
+  });
 });
