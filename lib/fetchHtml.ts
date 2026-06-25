@@ -192,9 +192,9 @@ class ChromeTab {
       return { html: "", contentType: mimeType };
     }
 
-    await Bun.sleep(1000);
-
     const html = await this.cdp.evaluate("document.documentElement.outerHTML");
+    // Kill pending JS and network — we already have the HTML
+    this.cdp.send("Page.stopLoading");
 
     if (isChallengePage(html)) {
       console.error("  Captcha detected, waiting for solution...");
