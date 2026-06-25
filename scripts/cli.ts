@@ -409,8 +409,8 @@ async function crawlLinks(): Promise<void> {
     queue.push({ original: startUrl, normalized: startNormalized });
   }
 
-  let visitedCount = 0;
-  let processedCount = 0;
+  let visitedCount = db && db.size() > 0 ? db.visitedSet().size : 0;
+  let processedCount = db && db.size() > 0 ? db.processedSet().size : 0;
 
   function progress() {
     const total = visited.size;
