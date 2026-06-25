@@ -246,9 +246,11 @@ export class ImageDownloader {
   private worker: Worker | null = null;
   private _seen = new Set<string>();
   outputDir: string;
+  private referer: string;
 
-  constructor(outputDir: string) {
+  constructor(outputDir: string, referer = "") {
     this.outputDir = outputDir;
+    this.referer = referer;
   }
 
   enqueued = 0;
@@ -264,12 +266,16 @@ export class ImageDownloader {
   start(): void {
     const url = new URL("./imageWorker.ts", import.meta.url).href;
     this.worker = new Worker(url);
-    this.worker.postMessage({ type: "init", outputDir: this.outputDir });
+    this.worker.postMessage({ type: "init", outputDir: this.outputDir, referer: this.referer });
     this.worker.onmessage = (e: MessageEvent) => {
       const data = e.data;
       if (data.type === "progress") {
         this.enqueued = data.enqueued;
         this.completed = data.completed;
+      } else if (data.type === "error") {
+        console.error(`\n  ${data.message}`);
+      } else if (data.type === "timing") {
+        console.error(`\n  Image ${data.url}: ${data.ms}ms`);
       }
     };
   }

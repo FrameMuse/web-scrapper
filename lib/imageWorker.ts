@@ -25,6 +25,7 @@ const CHROME_UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 let outputDir = "";
+let referer = "";
 const queue: string[] = [];
 const seen = new Set<string>();
 let stopped = false;
@@ -65,14 +66,23 @@ async function downloadInternal(url: string): Promise<void> {
 
   if (existsSync(localPath)) return;
 
+  const start = performance.now();
+
   try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": CHROME_UA },
-    });
-    if (!res.ok) return;
+    const headers: Record<string, string> = { "User-Agent": CHROME_UA };
+    if (referer) headers["Referer"] = referer;
+
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      self.postMessage({ type: "error", message: `Image HTTP ${res.status} for ${url}` });
+      return;
+    }
 
     const ct = res.headers.get("content-type") || "";
-    if (!ct.startsWith("image/")) return;
+    if (!ct.startsWith("image/")) {
+      self.postMessage({ type: "error", message: `Image content-type "${ct}" for ${url}` });
+      return;
+    }
 
     const buf = Buffer.from(await res.arrayBuffer());
 
@@ -80,6 +90,7 @@ async function downloadInternal(url: string): Promise<void> {
       try {
         const dims = sizeOf(buf);
         if ((dims.width && dims.width < 128) || (dims.height && dims.height < 128)) {
+          self.postMessage({ type: "error", message: `Image too small (${dims.width}x${dims.height}) for ${url}` });
           return;
         }
       } catch {}
@@ -92,9 +103,13 @@ async function downloadInternal(url: string): Promise<void> {
 
     mkdirSync(dir, { recursive: true });
     writeFileSync(localPath, buf);
+    const elapsed = Math.round(performance.now() - start);
     completed++;
     self.postMessage({ type: "progress", enqueued, completed });
-  } catch {}
+    self.postMessage({ type: "timing", url, ms: elapsed });
+  } catch (e) {
+    self.postMessage({ type: "error", message: `Image download error: ${e} for ${url}` });
+  }
 }
 
 async function processLoop(): Promise<void> {
@@ -123,6 +138,7 @@ self.onmessage = (e: MessageEvent) => {
   switch (data.type) {
     case "init":
       outputDir = data.outputDir;
+      referer = data.referer || "";
       processLoop();
       break;
     case "enqueue":

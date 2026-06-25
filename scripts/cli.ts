@@ -124,7 +124,7 @@ if (buildMap && !followLinks) {
 const resolvedConcurrent = concurrent;
 if (useChrome) setChromeEnabled(true, concurrent);
 
-const imageDownloader = saveImages ? new ImageDownloader(outputDir) : null;
+const imageDownloader = saveImages ? new ImageDownloader(outputDir, resolvedBaseUrl) : null;
 if (imageDownloader) {
   imageDownloader.start();
 }
