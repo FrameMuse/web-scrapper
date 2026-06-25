@@ -7,13 +7,7 @@ import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
 import { mdPath, writeFile } from "../lib/save.ts";
 import { join } from "path";
-import {
-  loadLinkMap,
-  saveLinkMap,
-  addToMap,
-  markVisited,
-  markProcessed,
-} from "../lib/linkMap.ts";
+import { LinkCsv } from "../lib/linkCsv.ts";
 import {
   fetchSitemap,
   loadCachedSitemap,
@@ -111,7 +105,7 @@ const followLinks = flags["follow-links"] === "true";
 const useChrome = flags["chrome"] === "true";
 const outputDir = expandTilde((flags["output"] as string) ?? ".");
 const buildMap = flags["build-map"] === "true";
-const buildMapPath = buildMap ? join(outputDir, "sitemap.json") : undefined;
+const buildMapPath = buildMap ? join(outputDir, "sitemap.csv") : undefined;
 const skipQuery = flags["skip-query"] === "true";
 const saveImages = flags["save-images"] === "true";
 const singleUrl = positional[0];
@@ -376,21 +370,22 @@ async function crawlLinks(): Promise<void> {
   const visited = new Set<string>();
   // Use normalized URL for map consistency — all keys share the same format
   const queue: Array<{ original: string; normalized: string }> = [];
-  const map = buildMapPath ? loadLinkMap(buildMapPath) : null;
-  if (map) registerMapSave(() => saveLinkMap(buildMapPath!, map));
+  const csv = buildMapPath ? new LinkCsv(buildMapPath) : null;
+  if (csv) {
+    csv.load();
+    registerMapSave(() => csv.close());
+  }
 
-  // Resume from link map if present
-  if (map && map.size > 0) {
-    for (const [normUrl, entry] of map) {
-      if (entry.visited) {
-        visited.add(normUrl);
-        if (!entry.processed) {
-          queue.push({ original: entry.url || normUrl, normalized: normUrl });
-        }
+  // Resume from CSV if present
+  if (csv && csv.size() > 0) {
+    for (const url of csv.visitedSet()) {
+      visited.add(url);
+      if (!csv.processedSet().has(url)) {
+        queue.push({ original: url, normalized: url });
       }
-      if (entry.processed) {
-        processed.add(normUrl);
-      }
+    }
+    for (const url of csv.processedSet()) {
+      processed.add(url);
     }
     console.error(`Resuming ${queue.length} unprocessed of ${visited.size} discovered URLs.`);
   } else {
@@ -417,10 +412,12 @@ async function crawlLinks(): Promise<void> {
     processed.add(normUrl);
 
     const { html, contentType } = await fetchHtml(url);
-    if (map) markVisited(map, normUrl, contentType, url);
+    if (csv) csv.markVisited(normUrl, contentType);
 
     const allLinks = extractAllRawLinks(html, url, urlFilter, skipQuery);
-    if (map) addToMap(map, allLinks.map((l) => l.normalized));
+    if (csv) {
+      for (const l of allLinks) csv.append(l.normalized, "");
+    }
 
     const discovered = await extractLinks(html, url);
     for (const { original: linkUrl, normalized } of discovered) {
@@ -464,7 +461,7 @@ async function crawlLinks(): Promise<void> {
     });
     const outPath = mdPath(outputDir, url, resolvedBaseUrl);
     writeFile(outPath, fm + "\n" + rewritten + "\n");
-    if (map) markProcessed(map, normUrl);
+    if (csv) csv.markProcessed(normUrl);
     processedCount++;
     progress();
   }
@@ -486,16 +483,11 @@ async function crawlLinks(): Promise<void> {
       }
     }
 
-    // Save map after each batch
-    if (map) saveLinkMap(buildMapPath!, map);
-
     if (queue.length > 0) {
       await Bun.sleep(interval);
     }
   }
 
-  // Final save after loop finishes
-  if (map) saveLinkMap(buildMapPath!, map);
   process.stderr.write("\n");
   console.error(`Done. ${processedCount} pages scraped.`);
 }
