@@ -478,7 +478,6 @@ async function crawlLinks(): Promise<void> {
     const results = await Promise.allSettled(
       batch.map(({ original: url, normalized: normUrl }) => processPage(url, normUrl))
     );
-    );
 
     for (const r of results) {
       if (r.status === "rejected") {
