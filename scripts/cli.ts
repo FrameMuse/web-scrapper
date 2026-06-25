@@ -164,6 +164,11 @@ async function isMediaMime(url: string): Promise<boolean> {
 // ---- helpers ----
 
 async function htmlToMd(html: string): Promise<string> {
+  if (!existsSync(CONVERTER)) {
+    throw new Error(
+      `Rust converter not found at ${CONVERTER}. Run: cd rust-converter && cargo build --release`
+    );
+  }
   const converterArgs = codeBy.length > 0 ? codeBy : [];
   const proc = spawnSync(CONVERTER, converterArgs, { input: html, encoding: "utf-8" });
   if (proc.error) throw new Error(`Converter failed: ${proc.error.message}`);

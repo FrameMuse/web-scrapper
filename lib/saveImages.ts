@@ -64,17 +64,32 @@ export function preprocessImages(
   outputDir: string,
   enqueue: (url: string, width?: number, height?: number) => void,
 ): string {
-  // 1. Process <img> tags
+  // 1. Process <img> and <source> tags (single pass)
   html = html.replace(
-    /<img\b([^>]*?)>/gi,
-    (match: string, attrs: string) => {
+    /<(img|source)\b([^>]*?)>/gi,
+    (match: string, tag: string, attrs: string) => {
+      if (tag.toLowerCase() === "source") {
+        const srcset = attrValue(attrs, "srcset").replace(/&amp;/g, "&");
+        if (srcset) {
+          const best = pickHighestRes(srcset);
+          if (best) {
+            const resolved = resolveUrl(best, pageUrl);
+            if (resolved && isImageUrl(resolved)) {
+              enqueue(resolved);
+            }
+          }
+        }
+        return match;
+      }
+
+      // <img> tag handling
       const src = attrValue(attrs, "src").replace(/&amp;/g, "&");
       const dataSrc = attrValue(attrs, "data-src").replace(/&amp;/g, "&");
       const width = parseInt(attrValue(attrs, "width") || "");
       const height = parseInt(attrValue(attrs, "height") || "");
 
       // If src is a placeholder/data-url and data-src exists, use data-src
-      const url = (dataSrc && (isPlaceholder(src) || src.startsWith("data:"))) ? dataSrc : src;
+      const url = (dataSrc && (isPlaceholder(src, width, height) || src.startsWith("data:"))) ? dataSrc : src;
 
       if (url && !url.startsWith("data:") && !url.startsWith("#")) {
         const resolved = resolveUrl(url, pageUrl);
@@ -108,24 +123,6 @@ export function preprocessImages(
         }
       }
 
-      return match;
-    },
-  );
-
-  // 2. Process <source srcset> inside <picture>
-  html = html.replace(
-    /<source\b([^>]*?)>/gi,
-    (match: string, attrs: string) => {
-      const srcset = attrValue(attrs, "srcset").replace(/&amp;/g, "&");
-      if (srcset) {
-        const best = pickHighestRes(srcset);
-        if (best) {
-          const resolved = resolveUrl(best, pageUrl);
-          if (resolved && isImageUrl(resolved)) {
-            enqueue(resolved);
-          }
-        }
-      }
       return match;
     },
   );
@@ -174,15 +171,14 @@ function attrValue(attrs: string, name: string): string {
   return m ? (m[1] ?? m[2]) : "";
 }
 
-function isPlaceholder(src: string): boolean {
+function isPlaceholder(src: string, width?: number, height?: number): boolean {
   if (!src) return true;
+  if ((width !== undefined && width <= 1) || (height !== undefined && height <= 1)) return true;
   const name = src.toLowerCase();
   return (
     name.includes("placeholder") ||
     /\bpixel\b/.test(name) ||
-    name.includes("1x1") ||
-    name === "data:image/gif;base64,r0lgodlhaqabaiaiaaaaapexnsyucmrib+ggoddwaaaaaaaabaaeaibaeaaa======" ||
-    name === "data:image/gif;base64,r0lgodlhaqabaaap///////yf5baeeaaalaaaaaaabaaaiaaaiateaoaw=="
+    name.includes("1x1")
   );
 }
 
