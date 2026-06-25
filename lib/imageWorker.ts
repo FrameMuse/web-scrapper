@@ -1,28 +1,12 @@
 import { mkdirSync, writeFileSync, existsSync } from "fs";
-import { dirname, join } from "path";
-import { createHash } from "crypto";
+import { dirname } from "path";
 import sizeOf from "image-size";
-
-const IMAGE_EXTENSIONS = new Set([
-  ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp", ".ico",
-]);
-
-const MIME_EXT_MAP: Record<string, string> = {
-  "image/jpeg": ".jpg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-  "image/svg+xml": ".svg",
-  "image/gif": ".gif",
-  "image/bmp": ".bmp",
-  "image/x-icon": ".ico",
-};
-
-function extensionFromMime(mime: string): string {
-  return MIME_EXT_MAP[mime] || "";
-}
-
-const CHROME_UA =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+import {
+  IMAGE_EXTENSIONS,
+  extensionFromMime,
+  imageLocalPath,
+  CHROME_UA,
+} from "./image-common.ts";
 
 let outputDir = "";
 let referer = "";
@@ -33,35 +17,8 @@ let active = 0;
 let enqueued = 0;
 let completed = 0;
 
-function imageLocalPath(url: string): string {
-  const u = new URL(url);
-  const host = u.hostname;
-  let path = u.pathname.replace(/[?#].*$/, "").replace(/\/+$/, "");
-  if (path === "") path = "/index";
-
-  const segments = path.split("/");
-  const extIdx = segments.findIndex((seg) =>
-    [...IMAGE_EXTENSIONS].some((ext) => seg.toLowerCase().endsWith(ext)),
-  );
-
-  if (extIdx === -1) {
-    return join(outputDir, "images", host, path);
-  }
-
-  const extSeg = segments[extIdx];
-  const ext = [...IMAGE_EXTENSIONS].find((e) => extSeg.toLowerCase().endsWith(e))!;
-  const baseName = extSeg.slice(0, -ext.length);
-
-  const dirSegments = segments.slice(0, extIdx);
-  const fileSegments = [baseName, ...segments.slice(extIdx + 1)].filter(Boolean);
-  const flatName = fileSegments.join("_") + ext;
-
-  const dirPath = dirSegments.length > 0 ? dirSegments.join("/") : "";
-  return join(outputDir, "images", host, dirPath, flatName);
-}
-
 async function downloadInternal(url: string): Promise<void> {
-  let localPath = imageLocalPath(url);
+  let localPath = imageLocalPath(outputDir, url);
   const dir = dirname(localPath);
 
   if (existsSync(localPath)) {

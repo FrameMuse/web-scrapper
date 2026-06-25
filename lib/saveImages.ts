@@ -1,16 +1,17 @@
 import { mkdirSync, writeFileSync, existsSync } from "fs";
 import { dirname, join } from "path";
 import { createHash } from "crypto";
+import {
+  IMAGE_EXTENSIONS,
+  extensionFromMime,
+  imageLocalPath,
+} from "./image-common.ts";
 
-export const IMAGE_EXTENSIONS = new Set([
-  ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp", ".ico",
-]);
+export { IMAGE_EXTENSIONS, extensionFromMime, imageLocalPath } from "./image-common.ts";
 
 export function isImageUrl(url: string): boolean {
   try {
     const path = new URL(url).pathname.toLowerCase();
-    // Check if any path segment (before query/hash) has an image extension
-    // Handles: /file.png, /file.png/revision/latest, /file.png?w=200
     const segments = path.replace(/[?#].*$/, "").split("/");
     for (const seg of segments) {
       for (const ext of IMAGE_EXTENSIONS) {
@@ -21,20 +22,6 @@ export function isImageUrl(url: string): boolean {
   } catch {
     return false;
   }
-}
-
-const MIME_EXT_MAP: Record<string, string> = {
-  "image/jpeg": ".jpg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-  "image/svg+xml": ".svg",
-  "image/gif": ".gif",
-  "image/bmp": ".bmp",
-  "image/x-icon": ".ico",
-};
-
-export function extensionFromMime(mime: string): string {
-  return MIME_EXT_MAP[mime] || "";
 }
 
 export function pickHighestRes(srcset: string): string {
@@ -53,33 +40,6 @@ export function pickHighestRes(srcset: string): string {
   if (candidates.length === 0) return "";
   candidates.sort((a, b) => b.priority - a.priority);
   return candidates[0].url;
-}
-
-export function imageLocalPath(outputDir: string, url: string): string {
-  const u = new URL(url);
-  const host = u.hostname;
-  let path = u.pathname.replace(/[?#].*$/, "").replace(/\/+$/, "");
-  if (path === "") path = "/index";
-
-  const segments = path.split("/");
-  const extIdx = segments.findIndex((seg) =>
-    [...IMAGE_EXTENSIONS].some((ext) => seg.toLowerCase().endsWith(ext)),
-  );
-
-  if (extIdx === -1) {
-    return join(outputDir, "images", host, path);
-  }
-
-  const extSeg = segments[extIdx];
-  const ext = [...IMAGE_EXTENSIONS].find((e) => extSeg.toLowerCase().endsWith(e))!;
-  const baseName = extSeg.slice(0, -ext.length);
-
-  const dirSegments = segments.slice(0, extIdx);
-  const fileSegments = [baseName, ...segments.slice(extIdx + 1)].filter(Boolean);
-  const flatName = fileSegments.join("_") + ext;
-
-  const dirPath = dirSegments.length > 0 ? dirSegments.join("/") : "";
-  return join(outputDir, "images", host, dirPath, flatName);
 }
 
 export function meetsMinSize(
