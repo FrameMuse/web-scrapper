@@ -372,8 +372,8 @@ describe("stripExcludedLinks", () => {
 
   function stripExcludedLinks(html: string): string {
     return html.replace(
-      /<a\b[^>]*href="([^"]*)"[^>]*>[\s\S]*?<\/a>\s*/gi,
-      (match, href) => (isExcluded(href) ? "" : match),
+      /<a\b[^>]*href=(?:"([^"]*)"|'([^']*)')[^>]*>[\s\S]*?<\/a>\s*/gi,
+      (match, dq, sq) => (isExcluded(dq ?? sq) ? "" : match),
     );
   }
 
@@ -431,5 +431,17 @@ describe("stripExcludedLinks", () => {
     expect(result).not.toContain("File:A");
     expect(result).toContain("Airborne");
     expect(result).not.toContain("User:Bob");
+  });
+
+  test("stripExcludedLinks handles single-quoted href", () => {
+    const html = '<a href=\'https://wiki.com/wiki/File:Icon.svg\'><img src="icon.svg"></a>';
+    const result = stripExcludedLinks(html);
+    expect(result).not.toContain("<img");
+  });
+
+  test("stripExcludedLinks handles double-quoted href", () => {
+    const html = '<a href="https://wiki.com/wiki/File:Photo.jpg">photo</a>';
+    const result = stripExcludedLinks(html);
+    expect(result).not.toContain("photo");
   });
 });

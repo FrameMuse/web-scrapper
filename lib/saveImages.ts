@@ -169,9 +169,9 @@ export function preprocessImages(
 }
 
 function attrValue(attrs: string, name: string): string {
-  const re = new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, "i");
+  const re = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i");
   const m = re.exec(attrs);
-  return m ? m[1] : "";
+  return m ? (m[1] ?? m[2]) : "";
 }
 
 function isPlaceholder(src: string): boolean {

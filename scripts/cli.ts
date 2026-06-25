@@ -175,8 +175,8 @@ async function htmlToMd(html: string): Promise<string> {
 
 function stripExcludedLinks(html: string): string {
   return html.replace(
-    /<a\b[^>]*href="([^"]*)"[^>]*>[\s\S]*?<\/a>\s*/gi,
-    (match, href) => isExcluded(href) ? '' : match,
+    /<a\b[^>]*href=(?:"([^"]*)"|'([^']*)')[^>]*>[\s\S]*?<\/a>\s*/gi,
+    (match, dq, sq) => isExcluded(dq ?? sq) ? '' : match,
   );
 }
 
