@@ -7,7 +7,7 @@ import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
 import { mdPath, writeFile } from "../lib/save.ts";
 import { join } from "path";
-import { LinkCsv } from "../lib/linkCsv.ts";
+import { LinkDb } from "../lib/linkDb.ts";
 import {
   fetchSitemap,
   loadCachedSitemap,
@@ -105,7 +105,7 @@ const followLinks = flags["follow-links"] === "true";
 const useChrome = flags["chrome"] === "true";
 const outputDir = expandTilde((flags["output"] as string) ?? ".");
 const buildMap = flags["build-map"] === "true";
-const buildMapPath = buildMap ? join(outputDir, "sitemap.csv") : undefined;
+const buildMapPath = buildMap ? join(outputDir, "sitemap.sqlite.db") : undefined;
 const skipQuery = flags["skip-query"] === "true";
 const saveImages = flags["save-images"] === "true";
 const singleUrl = positional[0];
@@ -370,21 +370,20 @@ async function crawlLinks(): Promise<void> {
   const visited = new Set<string>();
   // Use normalized URL for map consistency — all keys share the same format
   const queue: Array<{ original: string; normalized: string }> = [];
-  const csv = buildMapPath ? new LinkCsv(buildMapPath) : null;
-  if (csv) {
-    csv.load();
-    registerMapSave(() => csv.close());
+  const db = buildMapPath ? new LinkDb(buildMapPath) : null;
+  if (db) {
+    registerMapSave(() => db.close());
   }
 
-  // Resume from CSV if present
-  if (csv && csv.size() > 0) {
-    for (const url of csv.visitedSet()) {
+  // Resume from DB if present
+  if (db && db.size() > 0) {
+    for (const url of db.visitedSet()) {
       visited.add(url);
-      if (!csv.processedSet().has(url)) {
+      if (!db.processedSet().has(url)) {
         queue.push({ original: url, normalized: url });
       }
     }
-    for (const url of csv.processedSet()) {
+    for (const url of db.processedSet()) {
       processed.add(url);
     }
     console.error(`Resuming ${queue.length} unprocessed of ${visited.size} discovered URLs.`);
@@ -412,11 +411,11 @@ async function crawlLinks(): Promise<void> {
     processed.add(normUrl);
 
     const { html, contentType } = await fetchHtml(url);
-    if (csv) csv.markVisited(normUrl, contentType);
+    if (db) db.markVisited(normUrl, contentType);
 
     const allLinks = extractAllRawLinks(html, url, urlFilter, skipQuery);
-    if (csv) {
-      for (const l of allLinks) csv.append(l.normalized, "");
+    if (db) {
+      for (const l of allLinks) db.append(l.normalized, "");
     }
 
     const discovered = await extractLinks(html, url);
@@ -461,7 +460,7 @@ async function crawlLinks(): Promise<void> {
     });
     const outPath = mdPath(outputDir, url, resolvedBaseUrl);
     writeFile(outPath, fm + "\n" + rewritten + "\n");
-    if (csv) csv.markProcessed(normUrl);
+    if (db) db.markProcessed(normUrl);
     processedCount++;
     progress();
   }
@@ -489,6 +488,14 @@ async function crawlLinks(): Promise<void> {
   }
 
   process.stderr.write("\n");
+
+  // Export .sql dump for portability
+  if (db && db.size() > 0) {
+    const sqlPath = buildMapPath!.replace(/\.sqlite\.db$/, ".sql");
+    db.exportSql(sqlPath);
+    console.error(`Exported ${db.size()} URLs to ${sqlPath}`);
+  }
+
   console.error(`Done. ${processedCount} pages scraped.`);
 }
 
