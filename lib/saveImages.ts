@@ -240,6 +240,9 @@ export function rewriteMarkdownImages(
 
 // ---- ImageDownloader ----
 
+const CHROME_UA =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
 export class ImageDownloader {
   private queue: string[] = [];
   private seen = new Set<string>();
@@ -304,11 +307,19 @@ export class ImageDownloader {
     if (existsSync(localPath)) return;
 
     try {
-      const res = await fetch(url);
-      if (!res.ok) return;
+      const res = await fetch(url, {
+        headers: { "User-Agent": CHROME_UA },
+      });
+      if (!res.ok) {
+        console.error(`\n  Image HTTP ${res.status} for ${url}`);
+        return;
+      }
 
       const ct = res.headers.get("content-type") || "";
-      if (!ct.startsWith("image/")) return;
+      if (!ct.startsWith("image/")) {
+        console.error(`\n  Image non-image content-type "${ct}" for ${url}`);
+        return;
+      }
 
       const buf = Buffer.from(await res.arrayBuffer());
 
@@ -316,6 +327,7 @@ export class ImageDownloader {
         try {
           const dims = sizeOf(buf);
           if ((dims.width && dims.width < 128) || (dims.height && dims.height < 128)) {
+            console.error(`\n  Image too small (${dims.width}x${dims.height}) for ${url}`);
             return;
           }
         } catch {
@@ -332,8 +344,8 @@ export class ImageDownloader {
       mkdirSync(dir, { recursive: true });
       writeFileSync(localPath, buf);
       this.completed++;
-    } catch {
-      // Download failed — skip silently
+    } catch (e) {
+      console.error(`\n  Image download failed: ${e} for ${url}`);
     }
   }
 }
