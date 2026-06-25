@@ -26,19 +26,11 @@ export function setChromeEnabled(v: boolean, nTabs = 1): void {
   }
 }
 
-let _saveImages = false;
 let blockedTypes = new Set([
-  "Font", "Media", "WebSocket", "Manifest", "Stylesheet",
+  "Font", "Media", "WebSocket", "Manifest", "Stylesheet", "Image",
 ]);
 
-export function setSaveImages(v: boolean): void {
-  _saveImages = v;
-  if (v) {
-    blockedTypes.delete("Image");
-  } else {
-    blockedTypes.add("Image");
-  }
-}
+export function setSaveImages(v: boolean): void {}
 
 export function getChromeSession(): ChromeSession | null {
   return chromeSession;

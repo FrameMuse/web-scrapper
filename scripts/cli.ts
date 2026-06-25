@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";
-import { fetchHtml, setChromeEnabled, getChromeSession, setSaveImages } from "../lib/fetchHtml.ts";
+import { fetchHtml, setChromeEnabled, getChromeSession } from "../lib/fetchHtml.ts";
 import { extract } from "../lib/extract.ts";
 import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
@@ -123,7 +123,6 @@ if (buildMap && !followLinks) {
 
 const resolvedConcurrent = concurrent;
 if (useChrome) setChromeEnabled(true, concurrent);
-setSaveImages(saveImages);
 
 const imageDownloader = saveImages ? new ImageDownloader(outputDir) : null;
 if (imageDownloader) {
