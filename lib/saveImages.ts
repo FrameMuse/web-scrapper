@@ -1,7 +1,6 @@
 import { mkdirSync, writeFileSync, existsSync } from "fs";
 import { dirname, join } from "path";
 import { createHash } from "crypto";
-import sizeOf from "image-size";
 
 export const IMAGE_EXTENSIONS = new Set([
   ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp", ".ico",
@@ -243,13 +242,10 @@ export function rewriteMarkdownImages(
 
 // ---- ImageDownloader ----
 
-const CHROME_UA =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
 export class ImageDownloader {
-  private queue: string[] = [];
-  private seen = new Set<string>();
-  private outputDir: string;
+  private worker: Worker | null = null;
+  private _seen = new Set<string>();
+  outputDir: string;
 
   constructor(outputDir: string) {
     this.outputDir = outputDir;
@@ -259,96 +255,38 @@ export class ImageDownloader {
   completed = 0;
 
   enqueue(url: string): void {
-    if (this.seen.has(url)) return;
-    this.seen.add(url);
-    this.queue.push(url);
+    if (this._seen.has(url)) return;
+    this._seen.add(url);
     this.enqueued++;
+    this.worker?.postMessage({ type: "enqueue", url });
   }
 
   start(): void {
-    this.processLoop();
+    const url = new URL("./imageWorker.ts", import.meta.url).href;
+    this.worker = new Worker(url);
+    this.worker.postMessage({ type: "init", outputDir: this.outputDir });
+    this.worker.onmessage = (e: MessageEvent) => {
+      const data = e.data;
+      if (data.type === "progress") {
+        this.enqueued = data.enqueued;
+        this.completed = data.completed;
+      }
+    };
   }
 
   async stop(): Promise<void> {
-    this._stopped = true;
-    // Wait for queue + active to drain
-    while (this.queue.length > 0 || this.active > 0) {
-      await Bun.sleep(100);
-    }
-  }
-
-  private _stopped = false;
-  active = 0;
-
-  private async processLoop(): Promise<void> {
-    while (!this._stopped || this.queue.length > 0 || this.active > 0) {
-      if (this.queue.length === 0) {
-        await Bun.sleep(200);
-        continue;
-      }
-      const start = performance.now();
-      const batch = this.queue.splice(0, 20);
-      this.active += batch.length;
-      await Promise.allSettled(batch.map((url) => this.download(url)));
-      const elapsed = performance.now() - start;
-      if (elapsed < 500) await Bun.sleep(500 - elapsed);
-    }
-  }
-
-  private async download(url: string): Promise<void> {
-    try {
-      await this.downloadInternal(url);
-    } finally {
-      this.active--;
-    }
-  }
-
-  private async downloadInternal(url: string): Promise<void> {
-    let localPath = imageLocalPath(this.outputDir, url);
-    const dir = dirname(localPath);
-
-    if (existsSync(localPath)) return;
-
-    try {
-      const res = await fetch(url, {
-        headers: { "User-Agent": CHROME_UA },
-      });
-      if (!res.ok) {
-        console.error(`\n  Image HTTP ${res.status} for ${url}`);
-        return;
-      }
-
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.startsWith("image/")) {
-        console.error(`\n  Image non-image content-type "${ct}" for ${url}`);
-        return;
-      }
-
-      const buf = Buffer.from(await res.arrayBuffer());
-
-      if (buf.length > 0) {
-        try {
-          const dims = sizeOf(buf);
-          if ((dims.width && dims.width < 128) || (dims.height && dims.height < 128)) {
-            console.error(`\n  Image too small (${dims.width}x${dims.height}) for ${url}`);
-            return;
-          }
-        } catch {
-          // image-size couldn't parse — save anyway (unknown format edge case)
+    if (!this.worker) return;
+    return new Promise((resolve) => {
+      const handler = (e: MessageEvent) => {
+        if (e.data.type === "done") {
+          this.worker!.removeEventListener("message", handler);
+          this.worker!.terminate();
+          this.worker = null;
+          resolve();
         }
-      }
-
-      // If local path lacks extension, add from MIME
-      if (!localPath.match(/\.[a-z0-9]+$/i)) {
-        const ext = extensionFromMime(ct);
-        if (ext) localPath += ext;
-      }
-
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(localPath, buf);
-      this.completed++;
-    } catch (e) {
-      console.error(`\n  Image download failed: ${e} for ${url}`);
-    }
+      };
+      this.worker!.addEventListener("message", handler);
+      this.worker!.postMessage({ type: "stop" });
+    });
   }
 }
