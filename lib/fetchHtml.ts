@@ -147,8 +147,8 @@ class ChromeTab {
   }
 
   private handleRequest(msg: any): void {
-    const { requestId, request } = msg.params;
-    const type = request?.type || "";
+    const { requestId, request, resourceType } = msg.params;
+    const type = resourceType || "";
     const reqUrl = request?.url || "";
     if (
       blockedTypes.has(type) ||
