@@ -192,6 +192,17 @@ class ChromeTab {
       return { html: "", contentType: mimeType };
     }
 
+    // Wait for DOMContentLoaded (HTML fully parsed, DOM ready)
+    await new Promise<void>((resolve) => {
+      const handler = (msg: any) => {
+        if (msg.method === "Page.domContentEventFired") {
+          this.cdp.off("Page.domContentEventFired", handler);
+          resolve();
+        }
+      };
+      this.cdp.on("Page.domContentEventFired", handler);
+    });
+
     const html = await this.cdp.evaluate("document.documentElement.outerHTML");
     // Kill pending JS and network — we already have the HTML
     this.cdp.send("Page.stopLoading");
