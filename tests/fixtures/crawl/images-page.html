@@ -1,0 +1,26 @@
+<html>
+<head><title>Images Page</title></head>
+<body>
+  <h1>Image Tests</h1>
+
+  <img src="https://cdn.example.com/photo.jpg" width="400" height="300" alt="A photo">
+  <img src="https://cdn.example.com/icon.svg" width="32" height="32" alt="Small icon">
+  <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" alt="Dot">
+  <img data-src="https://cdn.example.com/lazy.jpg" src="https://cdn.example.com/placeholder.gif" width="200" height="200" alt="Lazy loaded">
+
+  <picture>
+    <source srcset="https://cdn.example.com/banner.webp 1200w, https://cdn.example.com/banner-small.webp 600w" type="image/webp">
+    <source srcset="https://cdn.example.com/banner.jpg 1200w, https://cdn.example.com/banner-small.jpg 600w" type="image/jpeg">
+    <img src="https://cdn.example.com/banner-small.jpg" width="1200" height="400" alt="Banner">
+  </picture>
+
+  <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="50" cy="50" r="40" fill="red"/>
+  </svg>
+
+  <script>
+    var img = document.createElement("img");
+    img.src = "https://cdn.example.com/dynamic.png";
+  </script>
+</body>
+</html>
