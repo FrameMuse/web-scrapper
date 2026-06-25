@@ -128,7 +128,7 @@ export function preprocessImages(
       }
 
       // srcset (responsive images)
-      const srcset = attrValue(attrs, "srcset") || attrValue(attrs, "data-srcset");
+      const srcset = (attrValue(attrs, "srcset") || attrValue(attrs, "data-srcset")).replace(/&amp;/g, "&");
       if (srcset) {
         const best = pickHighestRes(srcset);
         if (best) {
@@ -147,11 +147,14 @@ export function preprocessImages(
   html = html.replace(
     /<source\b([^>]*?)>/gi,
     (match: string, attrs: string) => {
-      const srcset = attrValue(attrs, "srcset");
+      const srcset = attrValue(attrs, "srcset").replace(/&amp;/g, "&");
       if (srcset) {
         const best = pickHighestRes(srcset);
         if (best) {
-          enqueue(best);
+          const resolved = resolveUrl(best, pageUrl);
+          if (resolved && isImageUrl(resolved)) {
+            enqueue(resolved);
+          }
         }
       }
       return match;
