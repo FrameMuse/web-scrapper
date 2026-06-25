@@ -26,6 +26,12 @@ import {
   rewriteMarkdownImages,
   ImageDownloader,
 } from "../lib/saveImages.ts";
+import {
+  MEDIA_EXTENSIONS,
+  isMediaLink,
+  normalizeUrl,
+  extractAllRawLinks,
+} from "../lib/links.ts";
 
 const CONVERTER =
   import.meta.dirname + "/../rust-converter/target/release/html-to-md";
@@ -140,21 +146,6 @@ if (hasFlags && !urlBase && !urlFilter) {
 const resolvedBaseUrl = urlBase || urlFilter || (singleUrl ? singleUrl : "");
 
 // ---- link filters ----
-
-const MEDIA_EXTENSIONS = [
-  ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp", ".ico",
-  ".mp4", ".webm", ".avi", ".mov", ".mkv",
-  ".mp3", ".wav", ".ogg", ".flac",
-  ".pdf", ".doc", ".docx", ".zip", ".rar", ".7z", ".tar", ".gz",
-  ".css", ".js", ".json", ".xml", ".rss", ".atom",
-];
-
-function isMediaLink(url: string): boolean {
-  try {
-    const path = new URL(url).pathname.toLowerCase();
-    return MEDIA_EXTENSIONS.some((ext) => path.endsWith(ext));
-  } catch { return false; }
-}
 
 function isExcluded(url: string): boolean {
   return exclude.some((p) => {
@@ -338,39 +329,8 @@ async function singlePage(): Promise<void> {
   await scrapeOne(singleUrl!);
 }
 
-function normalizeUrl(u: string): string {
-  // Strip hash
-  const hashIdx = u.indexOf("#");
-  if (hashIdx !== -1) u = u.substring(0, hashIdx);
-  return u.replace(/\/+$/, "") + "/";
-}
-
-function extractAllRawLinks(html: string, baseUrl: string): Array<{ original: string; normalized: string }> {
-  const raw: Array<{ original: string; normalized: string }> = [];
-  const re = /<a\b[^>]*href="([^"]*)"[^>]*>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) {
-    try {
-      const resolved = new URL(m[1], baseUrl).href;
-      const clean = skipQuery ? resolved.replace(/\?.*$/, "") : resolved;
-      const normalized = normalizeUrl(clean);
-      if (!urlFilter || normalized.startsWith(normalizeUrl(urlFilter))) {
-        raw.push({ original: clean, normalized });
-      }
-    } catch {}
-  }
-
-  // Deduplicate by normalized URL
-  const seen = new Set<string>();
-  return raw.filter(({ normalized }) => {
-    if (seen.has(normalized)) return false;
-    seen.add(normalized);
-    return true;
-  });
-}
-
 async function extractLinks(html: string, baseUrl: string): Promise<Array<{ original: string; normalized: string }>> {
-  const candidates = extractAllRawLinks(html, baseUrl);
+  const candidates = extractAllRawLinks(html, baseUrl, urlFilter, skipQuery);
 
   // Extension filter (fast, no network)
   const result: Array<{ original: string; normalized: string }> = [];
@@ -426,7 +386,7 @@ async function crawlLinks(): Promise<void> {
         if (map) markVisited(map, normUrl, contentType);
 
         // Track all discovered links (before filtering)
-        const allLinks = extractAllRawLinks(html, url);
+        const allLinks = extractAllRawLinks(html, url, urlFilter, skipQuery);
         if (map) addToMap(map, allLinks.map((l) => l.normalized));
 
         // Discover new crawlable links (filtered)
