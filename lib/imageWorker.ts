@@ -64,7 +64,11 @@ async function downloadInternal(url: string): Promise<void> {
   let localPath = imageLocalPath(url);
   const dir = dirname(localPath);
 
-  if (existsSync(localPath)) return;
+  if (existsSync(localPath)) {
+    completed++;
+    self.postMessage({ type: "progress", enqueued, completed });
+    return;
+  }
 
   const start = performance.now();
 
