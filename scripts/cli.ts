@@ -370,12 +370,9 @@ async function crawlLinks(): Promise<void> {
   let processedCount = 0;
 
   function progress() {
-    const total = visited.size;
-    const v = `visited: ${String(visitedCount).padStart(3)}/${total}`;
-    const p = `processed: ${String(processedCount).padStart(3)}/${Math.max(visitedCount, 1)}`;
-    let line = `  ${v}, ${p}`;
+    let line = `  visited: ${String(visitedCount).padStart(3)}, processed: ${String(processedCount).padStart(3)}`;
     if (imageDownloader) {
-      line += `, images: ${imageDownloader.completed}/${imageDownloader.enqueued}`;
+      line += `, images: ${imageDownloader.completed}`;
     }
     process.stderr.write(`\r${line}`);
   }
