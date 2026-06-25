@@ -48,9 +48,9 @@ function registerImageStop(fn: () => void): void {
   _pendingImageStop = fn;
 }
 
-process.on("exit", () => { _pendingMapSave?.(); _pendingImageStop?.(); });
-process.on("SIGINT", () => { _pendingMapSave?.(); _pendingImageStop?.(); process.exit(130); });
-process.on("SIGTERM", () => { _pendingMapSave?.(); _pendingImageStop?.(); process.exit(143); });
+process.on("exit", () => { process.stderr.write("\n"); _pendingMapSave?.(); _pendingImageStop?.(); });
+process.on("SIGINT", () => { process.stderr.write("\n"); _pendingMapSave?.(); _pendingImageStop?.(); process.exit(130); });
+process.on("SIGTERM", () => { process.stderr.write("\n"); _pendingMapSave?.(); _pendingImageStop?.(); process.exit(143); });
 
 // ---- arg parsing ----
 
