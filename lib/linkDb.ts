@@ -1,21 +1,42 @@
 import { Database } from "bun:sqlite";
-import { writeFileSync, existsSync, readFileSync } from "fs";
+import { writeFileSync, readFileSync, readdirSync } from "fs";
+import { join } from "path";
+import { LinkFlags } from "./linkFlags.ts";
 
 export class LinkDb {
   private db: Database;
-  private dbPath: string;
 
   constructor(path: string) {
-    this.dbPath = path;
     this.db = new Database(path);
-    this.db.run(`CREATE TABLE IF NOT EXISTS links (
-      url TEXT PRIMARY KEY,
-      ct TEXT NOT NULL DEFAULT '',
-      visited INTEGER NOT NULL DEFAULT 0,
-      processed INTEGER NOT NULL DEFAULT 0
-    )`);
     this.db.run("PRAGMA journal_mode=WAL");
     this.db.run("PRAGMA synchronous=NORMAL");
+    this.runMigrations();
+  }
+
+  private runMigrations(): void {
+    this.db.run(`CREATE TABLE IF NOT EXISTS _migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`);
+
+    const applied = new Set(
+      (this.db.query("SELECT name FROM _migrations ORDER BY name").all() as { name: string }[]).map((r) => r.name),
+    );
+
+    const migrationsDir = join(import.meta.dirname!, "migrations");
+    let files: string[];
+    try {
+      files = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
+    } catch {
+      return;
+    }
+
+    for (const file of files) {
+      if (applied.has(file)) continue;
+      const sql = readFileSync(join(migrationsDir, file), "utf-8");
+      this.db.run(sql);
+      this.db.run("INSERT INTO _migrations (name) VALUES (?)", file);
+    }
   }
 
   append(url: string, ct: string): void {
@@ -56,34 +77,20 @@ export class LinkDb {
     return row.c;
   }
 
-  exportSql(outputPath: string): void {
+  exportJson(outputPath: string, urlBase: string): void {
     const rows = this.db.query(
       "SELECT url, ct, visited, processed FROM links ORDER BY rowid",
     ).all() as { url: string; ct: string; visited: number; processed: number }[];
 
-    const lines: string[] = [
-      "-- sitemap exported from scrape crawl",
-      `-- generated: ${new Date().toISOString()}`,
-      `-- total urls: ${rows.length}`,
-      "",
-      "CREATE TABLE IF NOT EXISTS links (",
-      "  url TEXT PRIMARY KEY,",
-      "  ct TEXT NOT NULL DEFAULT '',",
-      "  visited INTEGER NOT NULL DEFAULT 0,",
-      "  processed INTEGER NOT NULL DEFAULT 0",
-      ");",
-      "",
-    ];
+    const entries: [string, string, number][] = rows.map((r) => {
+      let uri = r.url;
+      if (urlBase && uri.startsWith(urlBase)) uri = uri.slice(urlBase.length);
+      const flags: number =
+        (r.visited ? LinkFlags.Visited : LinkFlags.None) | (r.processed ? LinkFlags.Processed : LinkFlags.None);
+      return [uri, r.ct, flags];
+    });
 
-    for (const r of rows) {
-      const escapedUrl = r.url.replace(/'/g, "''");
-      lines.push(
-        `INSERT OR REPLACE INTO links (url, ct, visited, processed) VALUES ('${escapedUrl}','${r.ct}',${r.visited},${r.processed});`,
-      );
-    }
-
-    lines.push("");
-    writeFileSync(outputPath, lines.join("\n"));
+    writeFileSync(outputPath, JSON.stringify({ urlBase, entries }));
   }
 
   close(): void {

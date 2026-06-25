@@ -13,6 +13,7 @@ afterAll(() => {
     try { unlinkSync(`/tmp/test-linkdb-${i}.sqlite.db`); } catch {}
     try { unlinkSync(`/tmp/test-linkdb-${i}.sqlite.db-wal`); } catch {}
     try { unlinkSync(`/tmp/test-linkdb-${i}.sqlite.db-shm`); } catch {}
+    try { unlinkSync(`/tmp/test-linkdb-${i}.json`); } catch {}
   }
 });
 
@@ -142,17 +143,17 @@ describe("LinkDb", () => {
     db.close();
 
     // Verify via export
-    const sqlPath = p.replace(".sqlite.db", ".sql");
+    const jsonPath = p.replace(".sqlite.db", ".json");
     const db2 = new LinkDb(p);
-    db2.exportSql(sqlPath);
-    const dump = readFileSync(sqlPath, "utf-8");
-    expect(dump).toContain("text/html; charset=utf-8");
-    expect(dump).toContain("',1,0);");
-    unlinkSync(sqlPath);
+    db2.exportJson(jsonPath, "https://site.com/");
+    const dump = JSON.parse(readFileSync(jsonPath, "utf-8"));
+    expect(dump.entries[0][1]).toBe("text/html; charset=utf-8");
+    expect(dump.entries[0][2]).toBe(1); // visited
+    unlinkSync(jsonPath);
     db2.close();
   });
 
-  test("exportSql generates valid SQL", () => {
+  test("exportJson generates valid JSON", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
     db.append("https://site.com/wiki/A", "text/html");
@@ -162,30 +163,53 @@ describe("LinkDb", () => {
     db.append("https://site.com/wiki/B", "text/html");
     db.markVisited("https://site.com/wiki/B");
 
-    const sqlPath = p.replace(".sqlite.db", ".sql");
-    db.exportSql(sqlPath);
-    const dump = readFileSync(sqlPath, "utf-8");
-    expect(dump).toContain("sitemap exported");
-    expect(dump).toContain("https://site.com/wiki/A");
-    expect(dump).toContain("https://site.com/wiki/B");
-    expect(dump).toContain("',1,1);");
-    expect(dump).toContain("',1,0);");
-    unlinkSync(sqlPath);
+    const jsonPath = p.replace(".sqlite.db", ".json");
+    db.exportJson(jsonPath, "https://site.com/wiki/");
+    const dump = JSON.parse(readFileSync(jsonPath, "utf-8"));
+    expect(dump.urlBase).toBe("https://site.com/wiki/");
+    expect(dump.entries.length).toBe(2);
+    expect(dump.entries[0]).toEqual(["A", "text/html", 3]); // visited|processed = 3
+    expect(dump.entries[1]).toEqual(["B", "text/html", 1]); // visited = 1
+    unlinkSync(jsonPath);
     db.close();
   });
 
-  test("exportSql escapes single quotes in URLs", () => {
+  test("exportJson strips urlBase prefix", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    const url = "https://site.com/wiki/O'Brien";
-    db.append(url, "text/html");
-    db.markVisited(url);
+    db.append("https://site.com/img.jpg", "image/jpeg");
+    db.markVisited("https://site.com/img.jpg");
 
-    const sqlPath = p.replace(".sqlite.db", ".sql");
-    db.exportSql(sqlPath);
-    const dump = readFileSync(sqlPath, "utf-8");
-    expect(dump).toContain("O''Brien");
-    unlinkSync(sqlPath);
+    const jsonPath = p.replace(".sqlite.db", ".json");
+    db.exportJson(jsonPath, "https://site.com/");
+    const dump = JSON.parse(readFileSync(jsonPath, "utf-8"));
+    expect(dump.entries[0][0]).toBe("img.jpg");
+    unlinkSync(jsonPath);
+    db.close();
+  });
+
+  test("exportJson flags are bitwise correct", () => {
+    const p = tmpPath();
+    const db = new LinkDb(p);
+    db.append("https://site.com/wiki/None", "text/html");
+    // not visited, not processed
+    db.append("https://site.com/wiki/V", "text/html");
+    db.markVisited("https://site.com/wiki/V");
+    db.append("https://site.com/wiki/P", "text/html");
+    db.markProcessed("https://site.com/wiki/P");
+    db.append("https://site.com/wiki/Both", "text/html");
+    db.markVisited("https://site.com/wiki/Both");
+    db.markProcessed("https://site.com/wiki/Both");
+
+    const jsonPath = p.replace(".sqlite.db", ".json");
+    db.exportJson(jsonPath, "https://site.com/wiki/");
+    const dump = JSON.parse(readFileSync(jsonPath, "utf-8"));
+    const byUri = Object.fromEntries(dump.entries.map((e: any) => [e[0], e[2]]));
+    expect(byUri["None"]).toBe(0);  // none
+    expect(byUri["V"]).toBe(1);     // visited
+    expect(byUri["P"]).toBe(2);     // processed
+    expect(byUri["Both"]).toBe(3);  // visited | processed
+    unlinkSync(jsonPath);
     db.close();
   });
 });

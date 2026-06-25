@@ -493,11 +493,11 @@ async function crawlLinks(): Promise<void> {
 
   process.stderr.write("\n");
 
-  // Export .sql dump for portability
+  // Export .json sitemap for portability
   if (db && db.size() > 0) {
-    const sqlPath = buildMapPath!.replace(/\.sqlite\.db$/, ".sql");
-    db.exportSql(sqlPath);
-    console.error(`Exported ${db.size()} URLs to ${sqlPath}`);
+    const jsonPath = buildMapPath!.replace(/\.sqlite\.db$/, ".json");
+    db.exportJson(jsonPath, resolvedBaseUrl);
+    log("INFO", `Exported ${db.size()} URLs to ${jsonPath}`);
   }
 
   console.error(`Done. ${processedCount} pages scraped.`);

@@ -219,15 +219,15 @@ describe("perf: SQLite", () => {
     db.close();
   });
 
-  test("export to .sql", () => {
+  test("export to .json", () => {
     const db = new LinkDb(SQLITE_PATH);
-    const sqlPath = "/tmp/perf-export.sql";
+    const jsonPath = "/tmp/perf-export.json";
     const start = performance.now();
-    db.exportSql(sqlPath);
+    db.exportJson(jsonPath, "https://site.com/wiki/");
     const elapsed = performance.now() - start;
-    const sqlSize = readFileSync(sqlPath).length;
-    console.error(`  SQLite export to SQL: ${elapsed.toFixed(3)}ms (${(sqlSize / 1024).toFixed(1)}KB)`);
-    unlinkSync(sqlPath);
+    const jsonSize = readFileSync(jsonPath).length;
+    console.error(`  SQLite export to JSON: ${elapsed.toFixed(3)}ms (${(jsonSize / 1024).toFixed(1)}KB)`);
+    unlinkSync(jsonPath);
     db.close();
   });
 });
