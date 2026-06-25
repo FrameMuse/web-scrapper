@@ -115,6 +115,7 @@ const buildMapPath = buildMap ? join(outputDir, "sitemap.json") : undefined;
 const skipQuery = flags["skip-query"] === "true";
 const saveImages = flags["save-images"] === "true";
 const singleUrl = positional[0];
+const resolvedBaseUrl = urlBase || urlFilter || (singleUrl ? singleUrl : "");
 
 if (buildMap && !followLinks) {
   console.error("--build-map requires --follow-links");
@@ -135,8 +136,6 @@ if (hasFlags && !urlBase && !urlFilter) {
   console.error("--url-base or --url-filter is required");
   process.exit(1);
 }
-
-const resolvedBaseUrl = urlBase || urlFilter || (singleUrl ? singleUrl : "");
 
 // ---- link filters ----
 
