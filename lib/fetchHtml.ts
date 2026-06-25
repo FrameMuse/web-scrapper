@@ -26,6 +26,9 @@ export function setChromeEnabled(v: boolean, nTabs = 1): void {
   }
 }
 
+let _saveImages = false;
+export function setSaveImages(v: boolean): void { _saveImages = v; }
+
 export function getChromeSession(): ChromeSession | null {
   return chromeSession;
 }
@@ -116,8 +119,13 @@ class CdpConnection {
 // ---- Chrome tab = one page with its own CDP connection ----
 
 const blockedTypes = new Set([
-  "Font", "Media", "Image", "WebSocket", "Manifest", "Stylesheet",
+  "Font", "Media", "WebSocket", "Manifest", "Stylesheet",
 ]);
+
+// When --save-images is active, let images load (browser cache helps)
+if (!_saveImages) {
+  blockedTypes.add("Image");
+}
 
 const adPatterns = [
   /doubleclick\.net/i, /googlesyndication\.com/i,

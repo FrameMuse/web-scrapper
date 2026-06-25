@@ -5,5 +5,8 @@
   "type": "module",
   "scripts": {
     "cli": "bun scripts/cli.ts"
+  },
+  "dependencies": {
+    "image-size": "^2.0.2"
   }
 }

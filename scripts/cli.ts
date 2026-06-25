@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";
-import { fetchHtml, setChromeEnabled, getChromeSession } from "../lib/fetchHtml.ts";
+import { fetchHtml, setChromeEnabled, getChromeSession, setSaveImages } from "../lib/fetchHtml.ts";
 import { extract } from "../lib/extract.ts";
 import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
@@ -21,20 +21,30 @@ import {
   diffUrls,
   findMissingFiles,
 } from "../lib/sitemap.ts";
+import {
+  preprocessImages,
+  rewriteMarkdownImages,
+  ImageDownloader,
+} from "../lib/saveImages.ts";
 
 const CONVERTER =
   import.meta.dirname + "/../rust-converter/target/release/html-to-md";
 
 // ---- global map save for exit handlers ----
 let _pendingMapSave: (() => void) | null = null;
+let _pendingImageStop: (() => void) | null = null;
 
 function registerMapSave(fn: () => void): void {
   _pendingMapSave = fn;
 }
 
-process.on("exit", () => { _pendingMapSave?.(); });
-process.on("SIGINT", () => { _pendingMapSave?.(); process.exit(130); });
-process.on("SIGTERM", () => { _pendingMapSave?.(); process.exit(143); });
+function registerImageStop(fn: () => void): void {
+  _pendingImageStop = fn;
+}
+
+process.on("exit", () => { _pendingMapSave?.(); _pendingImageStop?.(); });
+process.on("SIGINT", () => { _pendingMapSave?.(); _pendingImageStop?.(); process.exit(130); });
+process.on("SIGTERM", () => { _pendingMapSave?.(); _pendingImageStop?.(); process.exit(143); });
 
 // ---- arg parsing ----
 
@@ -102,6 +112,7 @@ const outputDir = expandTilde((flags["output"] as string) ?? ".");
 const buildMap = flags["build-map"] === "true";
 const buildMapPath = buildMap ? join(outputDir, "sitemap.json") : undefined;
 const skipQuery = flags["skip-query"] === "true";
+const saveImages = flags["save-images"] === "true";
 const singleUrl = positional[0];
 
 if (buildMap && !followLinks) {
@@ -111,6 +122,13 @@ if (buildMap && !followLinks) {
 
 const resolvedConcurrent = concurrent;
 if (useChrome) setChromeEnabled(true, concurrent);
+setSaveImages(saveImages);
+
+const imageDownloader = saveImages ? new ImageDownloader(outputDir) : null;
+if (imageDownloader) {
+  imageDownloader.start();
+  registerImageStop(() => imageDownloader.stop());
+}
 
 const pipeMode = !hasFlags && !!singleUrl;
 
@@ -180,13 +198,26 @@ async function scrapeOne(url: string): Promise<void> {
     return;
   }
 
-  let mdBody = await htmlToMd(extracted.contentHtml);
+  let contentHtml = extracted.contentHtml;
+  // Preprocess images before HTML-to-MD conversion
+  if (imageDownloader) {
+    contentHtml = preprocessImages(contentHtml, url, (imgUrl, w, h) => {
+      imageDownloader.enqueue(imgUrl, w, h);
+    });
+  }
+
+  let mdBody = await htmlToMd(contentHtml);
   // Strip Docusaurus-style hash-link anchors
   mdBody = mdBody.replace(/\s*\[​\]\(#[^)]+\)/g, "");
   // Fix unnecessary hyphen escaping
   mdBody = mdBody.replace(/\\-/g, "-");
 
-  const rewritten = rewriteLinks(mdBody, url, resolvedBaseUrl);
+  let rewritten = rewriteLinks(mdBody, url, resolvedBaseUrl);
+  // Rewrite image URLs in markdown to local paths
+  if (imageDownloader) {
+    rewritten = rewriteMarkdownImages(rewritten, outputDir);
+  }
+
   const fm = renderFrontmatter({
     title: extracted.title,
     description: extracted.description,
@@ -416,10 +447,22 @@ async function crawlLinks(): Promise<void> {
           return;
         }
 
-        let mdBody = await htmlToMd(extracted.contentHtml);
+        let contentHtml = extracted.contentHtml;
+        // Preprocess images before HTML-to-MD conversion
+        if (imageDownloader) {
+          contentHtml = preprocessImages(contentHtml, url, (imgUrl, w, h) => {
+            imageDownloader.enqueue(imgUrl, w, h);
+          });
+        }
+
+        let mdBody = await htmlToMd(contentHtml);
         mdBody = mdBody.replace(/\s*\[​\]\(#[^)]+\)/g, "");
         mdBody = mdBody.replace(/\\-/g, "-");
-        const rewritten = rewriteLinks(mdBody, url, resolvedBaseUrl);
+        let rewritten = rewriteLinks(mdBody, url, resolvedBaseUrl);
+        // Rewrite image URLs in markdown to local paths
+        if (imageDownloader) {
+          rewritten = rewriteMarkdownImages(rewritten, outputDir);
+        }
         const fm = renderFrontmatter({
           title: extracted.title,
           description: extracted.description,
@@ -479,5 +522,6 @@ try {
     process.exit(1);
   }
 } finally {
+  imageDownloader?.stop();
   getChromeSession()?.close();
 }
