@@ -26,15 +26,17 @@ export function extractAllRawLinks(
   skipQuery = false,
 ): Array<{ original: string; normalized: string }> {
   const raw: Array<{ original: string; normalized: string }> = [];
-  const re = /<a\b[^>]*href="([^"]*)"[^>]*>/gi;
+  const re = /<a\b[^>]*href=(?:"([^"]*)"|'([^']*)')[^>]*>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
     try {
-      const resolved = new URL(m[1], baseUrl).href;
+      const href = m[1] ?? m[2];
+      if (!href) continue;
+      const resolved = new URL(href, baseUrl).href;
       const clean = skipQuery ? resolved.replace(/\?.*$/, "") : resolved;
       const normalized = normalizeUrl(clean);
       if (!urlFilter || normalized.startsWith(normalizeUrl(urlFilter))) {
-        raw.push({ original: clean, normalized });
+        raw.push({ original: resolved, normalized });
       }
     } catch {}
   }
