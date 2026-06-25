@@ -432,7 +432,7 @@ async function crawlLinks(): Promise<void> {
 
     const discovered = await extractLinks(html, url);
     if (db) {
-      for (const { normalized } of discovered) db.append(normalized, "");
+      db.append(discovered.map((d) => ({ url: d.normalized, ct: "" })));
     }
 
     for (const { original: linkUrl, normalized } of discovered) {

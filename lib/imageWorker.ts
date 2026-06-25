@@ -75,7 +75,7 @@ async function downloadInternal(url: string): Promise<void> {
 async function processLoop(): Promise<void> {
   while (!stopped || queue.length > 0 || active > 0) {
     if (queue.length === 0) {
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 200));
       continue;
     }
     const batch = queue.splice(0, 20);

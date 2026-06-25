@@ -21,7 +21,7 @@ describe("LinkDb", () => {
   test("append and load single entry", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/wiki/Page", "text/html");
+    db.append([{url: "https://site.com/wiki/Page", ct: "text/html"}]);
     expect(db.size()).toBe(1);
     expect(db.visitedSet().size).toBe(0);
     db.close();
@@ -30,9 +30,9 @@ describe("LinkDb", () => {
   test("append multiple entries", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/wiki/A", "text/html");
-    db.append("https://site.com/wiki/B", "text/html");
-    db.append("https://site.com/img.jpg", "image/jpeg");
+    db.append([{url: "https://site.com/wiki/A", ct: "text/html"}]);
+    db.append([{url: "https://site.com/wiki/B", ct: "text/html"}]);
+    db.append([{url: "https://site.com/img.jpg", ct: "image/jpeg"}]);
     expect(db.size()).toBe(3);
     db.close();
   });
@@ -40,8 +40,8 @@ describe("LinkDb", () => {
   test("append dedup — same URL INSERT OR IGNORE", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/wiki/Dedup", "text/html");
-    db.append("https://site.com/wiki/Dedup", "text/html");
+    db.append([{url: "https://site.com/wiki/Dedup", ct: "text/html"}]);
+    db.append([{url: "https://site.com/wiki/Dedup", ct: "text/html"}]);
     expect(db.size()).toBe(1);
     db.close();
   });
@@ -49,7 +49,7 @@ describe("LinkDb", () => {
   test("mark visited updates in place", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/wiki/V", "text/html");
+    db.append([{url: "https://site.com/wiki/V", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/V");
     expect(db.visitedSet().has("https://site.com/wiki/V")).toBe(true);
 
@@ -63,7 +63,7 @@ describe("LinkDb", () => {
   test("mark processed updates in place", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/wiki/P", "text/html");
+    db.append([{url: "https://site.com/wiki/P", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/P");
     db.markProcessed("https://site.com/wiki/P");
     expect(db.processedSet().has("https://site.com/wiki/P")).toBe(true);
@@ -77,14 +77,14 @@ describe("LinkDb", () => {
   test("unprocessedVisited returns queue for resume", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/wiki/Done", "text/html");
+    db.append([{url: "https://site.com/wiki/Done", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/Done");
     db.markProcessed("https://site.com/wiki/Done");
 
-    db.append("https://site.com/wiki/Unprocessed", "text/html");
+    db.append([{url: "https://site.com/wiki/Unprocessed", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/Unprocessed");
 
-    db.append("https://site.com/wiki/NotVisited", "text/html");
+    db.append([{url: "https://site.com/wiki/NotVisited", ct: "text/html"}]);
 
     const queue = db.unprocessedVisited();
     expect(queue).toEqual(["https://site.com/wiki/Unprocessed"]);
@@ -94,11 +94,11 @@ describe("LinkDb", () => {
   test("visitedSet and processedSet", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/wiki/A", "text/html");
+    db.append([{url: "https://site.com/wiki/A", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/A");
     db.markProcessed("https://site.com/wiki/A");
 
-    db.append("https://site.com/wiki/B", "text/html");
+    db.append([{url: "https://site.com/wiki/B", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/B");
 
     expect(db.visitedSet().size).toBe(2);
@@ -110,7 +110,7 @@ describe("LinkDb", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
     const url = "https://site.com/wiki/Page?q=a&b=c#frag";
-    db.append(url, "text/html");
+    db.append([{url, ct: "text/html"}]);
     db.markVisited(url);
     expect(db.visitedSet().has(url)).toBe(true);
     db.close();
@@ -138,7 +138,7 @@ describe("LinkDb", () => {
   test("markVisited updates content type", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/page", "text/html");
+    db.append([{url: "https://site.com/page", ct: "text/html"}]);
     db.markVisited("https://site.com/page", "text/html; charset=utf-8");
     db.close();
 
@@ -156,11 +156,11 @@ describe("LinkDb", () => {
   test("exportJson generates valid JSON", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/wiki/A", "text/html");
+    db.append([{url: "https://site.com/wiki/A", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/A");
     db.markProcessed("https://site.com/wiki/A");
 
-    db.append("https://site.com/wiki/B", "text/html");
+    db.append([{url: "https://site.com/wiki/B", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/B");
 
     const jsonPath = p.replace(".sqlite.db", ".json");
@@ -177,7 +177,7 @@ describe("LinkDb", () => {
   test("exportJson strips urlBase prefix", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/img.jpg", "image/jpeg");
+    db.append([{url: "https://site.com/img.jpg", ct: "image/jpeg"}]);
     db.markVisited("https://site.com/img.jpg");
 
     const jsonPath = p.replace(".sqlite.db", ".json");
@@ -191,13 +191,13 @@ describe("LinkDb", () => {
   test("exportJson flags are bitwise correct", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/wiki/None", "text/html");
+    db.append([{url: "https://site.com/wiki/None", ct: "text/html"}]);
     // not visited, not processed
-    db.append("https://site.com/wiki/V", "text/html");
+    db.append([{url: "https://site.com/wiki/V", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/V");
-    db.append("https://site.com/wiki/P", "text/html");
+    db.append([{url: "https://site.com/wiki/P", ct: "text/html"}]);
     db.markProcessed("https://site.com/wiki/P");
-    db.append("https://site.com/wiki/Both", "text/html");
+    db.append([{url: "https://site.com/wiki/Both", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/Both");
     db.markProcessed("https://site.com/wiki/Both");
 
@@ -216,14 +216,14 @@ describe("LinkDb", () => {
   test("round-trip: export → import → verify", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/wiki/A", "text/html");
+    db.append([{url: "https://site.com/wiki/A", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/A");
     db.markProcessed("https://site.com/wiki/A");
 
-    db.append("https://site.com/wiki/B", "text/html");
+    db.append([{url: "https://site.com/wiki/B", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/B");
 
-    db.append("https://site.com/wiki/C", "text/html");
+    db.append([{url: "https://site.com/wiki/C", ct: "text/html"}]);
     // not visited, not processed
 
     const jsonPath = p.replace(".sqlite.db", ".json");
@@ -253,11 +253,11 @@ describe("LinkDb", () => {
   test("round-trip: export → import resume works", () => {
     const p = tmpPath();
     const db = new LinkDb(p);
-    db.append("https://site.com/wiki/Unprocessed1", "text/html");
+    db.append([{url: "https://site.com/wiki/Unprocessed1", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/Unprocessed1");
-    db.append("https://site.com/wiki/Unprocessed2", "text/html");
+    db.append([{url: "https://site.com/wiki/Unprocessed2", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/Unprocessed2");
-    db.append("https://site.com/wiki/Done", "text/html");
+    db.append([{url: "https://site.com/wiki/Done", ct: "text/html"}]);
     db.markVisited("https://site.com/wiki/Done");
     db.markProcessed("https://site.com/wiki/Done");
 

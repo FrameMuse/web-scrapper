@@ -39,8 +39,13 @@ export class LinkDb {
     }
   }
 
-  append(url: string, ct: string): void {
-    this.db.run("INSERT OR IGNORE INTO links (url, ct) VALUES (?, ?)", url, ct || "");
+  append(entries: { url: string; ct: string }[]): void {
+    if (entries.length === 0) return;
+    const stmt = this.db.prepare("INSERT OR IGNORE INTO links (url, ct) VALUES (?, ?)");
+    const tx = this.db.transaction(() => {
+      for (const e of entries) stmt.run(e.url, e.ct || "");
+    });
+    tx();
   }
 
   markVisited(url: string, ct?: string): void {

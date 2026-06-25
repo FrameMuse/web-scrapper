@@ -164,7 +164,7 @@ describe("perf: SQLite", () => {
       const db = new LinkDb(SQLITE_PATH);
       const start = performance.now();
       for (let i = 0; i < N; i++) {
-        db.append(makeUrl(i), "text/html");
+        db.append([{url: makeUrl(i), ct: "text/html"}]);
       }
       const elapsed = performance.now() - start;
       console.error(`  SQLite write ${N}: ${elapsed.toFixed(2)}ms`);
@@ -204,7 +204,7 @@ describe("perf: SQLite", () => {
   test("append 1 entry to 1000", () => {
     const db = new LinkDb(SQLITE_PATH);
     const start = performance.now();
-    db.append(makeUrl(9999), "text/html");
+    db.append([{url: makeUrl(9999), ct: "text/html"}]);
     const elapsed = performance.now() - start;
     console.error(`  SQLite append 1 to ${db.size() - 1}: ${elapsed.toFixed(3)}ms`);
     db.close();
