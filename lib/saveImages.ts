@@ -63,20 +63,24 @@ export function imageLocalPath(outputDir: string, url: string): string {
   if (path === "") path = "/index";
 
   const segments = path.split("/");
-  const lastSeg = segments[segments.length - 1];
-  const hasExt = [...IMAGE_EXTENSIONS].some((ext) => lastSeg.toLowerCase().endsWith(ext));
-  if (!hasExt) {
-    for (const seg of segments) {
-      const lower = seg.toLowerCase();
-      const found = [...IMAGE_EXTENSIONS].find((ext) => lower.endsWith(ext));
-      if (found) {
-        path += found;
-        break;
-      }
-    }
+  const extIdx = segments.findIndex((seg) =>
+    [...IMAGE_EXTENSIONS].some((ext) => seg.toLowerCase().endsWith(ext)),
+  );
+
+  if (extIdx === -1) {
+    return join(outputDir, "images", host, path);
   }
 
-  return join(outputDir, "images", host, path);
+  const extSeg = segments[extIdx];
+  const ext = [...IMAGE_EXTENSIONS].find((e) => extSeg.toLowerCase().endsWith(e))!;
+  const baseName = extSeg.slice(0, -ext.length);
+
+  const dirSegments = segments.slice(0, extIdx);
+  const fileSegments = [baseName, ...segments.slice(extIdx + 1)].filter(Boolean);
+  const flatName = fileSegments.join("_") + ext;
+
+  const dirPath = dirSegments.length > 0 ? dirSegments.join("/") : "";
+  return join(outputDir, "images", host, dirPath, flatName);
 }
 
 export function meetsMinSize(

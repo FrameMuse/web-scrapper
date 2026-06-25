@@ -118,6 +118,30 @@ describe("local image path computation", () => {
     expect(imageLocalPath(OUT, url))
       .toBe("/tmp/test-output/images/cdn.example.com/images/photo.jpg");
   });
+
+  test("flattens segments after extension-bearing segment", () => {
+    const url = "https://cdn.example.com/Foo.png/revision/latest/scale-to-width-down/250";
+    expect(imageLocalPath(OUT, url))
+      .toBe("/tmp/test-output/images/cdn.example.com/Foo_revision_latest_scale-to-width-down_250.png");
+  });
+
+  test("flattens with dir segments before extension", () => {
+    const url = "https://cdn.example.com/a/b/Foo.png/revision/latest";
+    expect(imageLocalPath(OUT, url))
+      .toBe("/tmp/test-output/images/cdn.example.com/a/b/Foo_revision_latest.png");
+  });
+
+  test("no change when extension is in last segment", () => {
+    const url = "https://cdn.example.com/path/to/photo.jpg";
+    expect(imageLocalPath(OUT, url))
+      .toBe("/tmp/test-output/images/cdn.example.com/path/to/photo.jpg");
+  });
+
+  test("no flatten when no extension found", () => {
+    const url = "https://cdn.example.com/revision/latest/scale-to-width-down/250";
+    expect(imageLocalPath(OUT, url))
+      .toBe("/tmp/test-output/images/cdn.example.com/revision/latest/scale-to-width-down/250");
+  });
 });
 
 describe("size filtering (128x128 minimum)", () => {
