@@ -172,9 +172,9 @@ describe("HTML image extraction", () => {
     });
 
     // Should have enqueued regular img, source srcset (best res), etc.
+    // icon.svg (32x32) is filtered out by early size check (<128)
     expect(enqueued.length).toBeGreaterThanOrEqual(2);
     expect(enqueued.some((u) => u.includes("photo.jpg"))).toBe(true);
-    expect(enqueued.some((u) => u.includes("icon.svg"))).toBe(true);
   });
 
   test("preprocessImages replaces inline <svg> with <img>", () => {
@@ -204,14 +204,24 @@ describe("HTML image extraction", () => {
     expect(enqueued[0]).toBe("https://site.com/wiki/assets/photo.jpg");
   });
 
-  test("width and height attrs passed to enqueue", () => {
+  test("width and height used for early size filtering", () => {
     const html = '<img src="https://cdn.com/photo.jpg" width="400" height="300">';
-    const enqueued: Array<{ url: string; w?: number; h?: number }> = [];
-    preprocessImages(html, "https://base.com/", "/tmp", (url, w, h) => {
-      enqueued.push({ url, w, h });
+    const enqueued: string[] = [];
+    preprocessImages(html, "https://base.com/", "/tmp", (url) => {
+      enqueued.push(url);
     });
-    expect(enqueued[0].w).toBe(400);
-    expect(enqueued[0].h).toBe(300);
+    // 400x300 passes min size (>=128) so it is enqueued
+    expect(enqueued.length).toBe(1);
+    expect(enqueued[0]).toContain("photo.jpg");
+  });
+
+  test("small images (< 128) filtered out early", () => {
+    const html = '<img src="https://cdn.com/small-icon.png" width="32" height="32">';
+    const enqueued: string[] = [];
+    preprocessImages(html, "https://base.com/", "/tmp", (url) => {
+      enqueued.push(url);
+    });
+    expect(enqueued.length).toBe(0);
   });
 });
 

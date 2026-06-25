@@ -61,6 +61,21 @@ export function imageLocalPath(outputDir: string, url: string): string {
   const host = u.hostname;
   let path = u.pathname.replace(/[?#].*$/, "").replace(/\/+$/, "");
   if (path === "") path = "/index";
+
+  const segments = path.split("/");
+  const lastSeg = segments[segments.length - 1];
+  const hasExt = [...IMAGE_EXTENSIONS].some((ext) => lastSeg.toLowerCase().endsWith(ext));
+  if (!hasExt) {
+    for (const seg of segments) {
+      const lower = seg.toLowerCase();
+      const found = [...IMAGE_EXTENSIONS].find((ext) => lower.endsWith(ext));
+      if (found) {
+        path += found;
+        break;
+      }
+    }
+  }
+
   return join(outputDir, "images", host, path);
 }
 
@@ -101,23 +116,30 @@ export function preprocessImages(
       if (url && !url.startsWith("data:") && !url.startsWith("#")) {
         const resolved = resolveUrl(url, pageUrl);
         if (resolved && isImageUrl(resolved)) {
-          enqueue(resolved, width || undefined, height || undefined);
+          const sizeOk = meetsMinSize(width || undefined, height || undefined);
+          if (sizeOk !== false) {
+            enqueue(resolved);
+          }
         }
       }
+
+      // srcset (responsive images)
+      const srcset = attrValue(attrs, "srcset") || attrValue(attrs, "data-srcset");
+      if (srcset) {
+        const best = pickHighestRes(srcset);
+        if (best) {
+          const resolved = resolveUrl(best, pageUrl);
+          if (resolved && isImageUrl(resolved)) {
+            enqueue(resolved);
+          }
+        }
+      }
+
       return match;
     },
   );
 
-  // 2. Process <picture> → <source srcset>
-  html = html.replace(
-    /<picture\b[^>]*?>/gi,
-    (match: string) => {
-      return match;
-    },
-  );
-
-  // Extract srcset from source elements inside picture
-  // (process after the main replacement loop)
+  // 2. Process <source srcset> inside <picture>
   html = html.replace(
     /<source\b([^>]*?)>/gi,
     (match: string, attrs: string) => {
@@ -181,7 +203,7 @@ function isPlaceholder(src: string): boolean {
   const name = src.toLowerCase();
   return (
     name.includes("placeholder") ||
-    name.includes("pixel") ||
+    /\bpixel\b/.test(name) ||
     name.includes("1x1") ||
     name === "data:image/gif;base64,r0lgodlhaqabaiaiaaaaapexnsyucmrib+ggoddwaaaaaaaabaaeaibaeaaa======" ||
     name === "data:image/gif;base64,r0lgodlhaqabaaap///////yf5baeeaaalaaaaaaabaaaiaaaiateaoaw=="
@@ -199,7 +221,6 @@ function resolveUrl(url: string, base: string): string | null {
 export function rewriteMarkdownImages(
   md: string,
   outputDir: string,
-  processed?: Set<string>,
 ): string {
   return md.replace(
     /!\[([^\]]*)\]\(((?:https?:\/\/)[^)]+)\)/g,
@@ -273,10 +294,9 @@ export class ImageDownloader {
   }
 
   private async downloadInternal(url: string): Promise<void> {
-    const localPath = imageLocalPath(this.outputDir, url);
+    let localPath = imageLocalPath(this.outputDir, url);
     const dir = dirname(localPath);
 
-    // Check if file already exists
     if (existsSync(localPath)) return;
 
     try {
@@ -288,7 +308,6 @@ export class ImageDownloader {
 
       const buf = Buffer.from(await res.arrayBuffer());
 
-      // Check size
       if (buf.length > 0) {
         try {
           const dims = sizeOf(buf);
@@ -300,21 +319,15 @@ export class ImageDownloader {
         }
       }
 
-      // Ensure directory exists
+      // If local path lacks extension, add from MIME
+      if (!localPath.match(/\.[a-z0-9]+$/i)) {
+        const ext = extensionFromMime(ct);
+        if (ext) localPath += ext;
+      }
+
       mkdirSync(dir, { recursive: true });
       writeFileSync(localPath, buf);
       this.completed++;
-
-      // If local path lacks extension, append from MIME
-      if (!localPath.match(/\.[a-z0-9]+$/i)) {
-        const ext = extensionFromMime(ct);
-        if (ext) {
-          const extPath = localPath + ext;
-          if (!existsSync(extPath)) {
-            writeFileSync(extPath, buf);
-          }
-        }
-      }
     } catch {
       // Download failed — skip silently
     }
