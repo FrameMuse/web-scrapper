@@ -114,6 +114,20 @@ export class LinkDb {
     tx();
   }
 
+  appendLog(runId: string, level: string, message: string): void {
+    this.db.run("INSERT INTO logs (run_id, level, message) VALUES (?, ?, ?)", runId, level, message);
+  }
+
+  getLogs(runId?: string, level?: string, limit = 100): { run_id: string; level: string; message: string; created_at: string }[] {
+    let sql = "SELECT run_id, level, message, created_at FROM logs WHERE 1=1";
+    const params: any[] = [];
+    if (runId) { sql += " AND run_id=?"; params.push(runId); }
+    if (level) { sql += " AND level=?"; params.push(level); }
+    sql += " ORDER BY id DESC LIMIT ?";
+    params.push(limit);
+    return this.db.query(sql).all(...params) as any[];
+  }
+
   close(): void {
     this.db.close();
   }

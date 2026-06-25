@@ -1,7 +1,8 @@
-import { mkdirSync, appendFileSync, existsSync } from "fs";
+import { mkdirSync } from "fs";
 import { join } from "path";
+import type { LinkDb } from "./linkDb";
 
-let _logFile: string | null = null;
+let _db: LinkDb | null = null;
 let _runId = "";
 
 function generateRunId(): string {
@@ -20,18 +21,19 @@ export function getRunId(): string {
   return _runId;
 }
 
+export function setLoggerDb(db: LinkDb | null): void {
+  _db = db;
+}
+
 export function initLogger(outputDir: string): void {
   _runId = generateRunId();
   const runsDir = join(outputDir, "runs");
   mkdirSync(runsDir, { recursive: true });
-  _logFile = join(runsDir, `${_runId}.log`);
-  log("INFO", "Run started", true);
+  // DB is not available yet — setLoggerDb is called after LinkDb is created
 }
 
 export function log(level: string, message: string, skipStderr = false): void {
-  const line = `[${new Date().toISOString()}] [${level}] ${_runId} ${message}`;
+  const line = `[${level}] ${_runId} ${message}`;
   if (!skipStderr) process.stderr.write(line + "\n");
-  if (_logFile) {
-    try { appendFileSync(_logFile, line + "\n"); } catch {}
-  }
+  if (_db) _db.appendLog(_runId, level, message);
 }

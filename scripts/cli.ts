@@ -377,6 +377,7 @@ async function crawlLinks(): Promise<void> {
   const db = buildMapPath ? new LinkDb(buildMapPath) : null;
   if (db) {
     registerMapSave(() => db.close());
+    setLoggerDb(db);
   }
 
   // Resume from DB if present
