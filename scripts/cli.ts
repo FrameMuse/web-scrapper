@@ -382,16 +382,28 @@ async function crawlLinks(): Promise<void> {
 
   // Resume from DB if present
   if (db && db.size() > 0) {
-    for (const url of db.visitedSet()) {
+    const dbVisited = db.visitedSet();
+    const dbProcessed = db.processedSet();
+    const queued = new Set<string>();
+
+    for (const url of dbVisited) {
       visited.add(url);
-      if (!db.processedSet().has(url)) {
+      if (!dbProcessed.has(url) && !queued.has(url)) {
+        queued.add(url);
         queue.push({ original: url, normalized: url });
       }
     }
-    for (const url of db.processedSet()) {
+    for (const url of dbProcessed) {
       processed.add(url);
     }
-    console.error(`Resuming ${queue.length} unprocessed of ${visited.size} discovered URLs.`);
+    // Queue discovered-but-not-visited URLs (never fetched)
+    for (const url of db.allUrls()) {
+      if (!queued.has(url) && !dbProcessed.has(url)) {
+        visited.add(url);
+        queue.push({ original: url, normalized: url });
+      }
+    }
+    console.error(`Resuming ${queue.length} unprocessed of ${db.size()} discovered URLs.`);
   } else {
     visited.add(startNormalized);
     queue.push({ original: startUrl, normalized: startNormalized });
@@ -418,12 +430,11 @@ async function crawlLinks(): Promise<void> {
     const { html, contentType } = await fetchHtml(url);
     if (db) db.markVisited(normUrl, contentType);
 
-    const allLinks = extractAllRawLinks(html, url, urlFilter, skipQuery);
+    const discovered = await extractLinks(html, url);
     if (db) {
-      for (const l of allLinks) db.append(l.normalized, "");
+      for (const { normalized } of discovered) db.append(normalized, "");
     }
 
-    const discovered = await extractLinks(html, url);
     for (const { original: linkUrl, normalized } of discovered) {
       if (!visited.has(normalized)) {
         visited.add(normalized);

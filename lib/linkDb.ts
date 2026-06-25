@@ -77,6 +77,16 @@ export class LinkDb {
     return row.c;
   }
 
+  allUrls(): string[] {
+    const rows = this.db.query("SELECT url FROM links").all() as { url: string }[];
+    return rows.map((r) => r.url);
+  }
+
+  getCt(url: string): string | null {
+    const row = this.db.query("SELECT ct FROM links WHERE url=?").get(url) as { ct: string } | null;
+    return row?.ct ?? null;
+  }
+
   exportJson(outputPath: string, urlBase: string): void {
     const rows = this.db.query(
       "SELECT url, ct, visited, processed FROM links ORDER BY rowid",
