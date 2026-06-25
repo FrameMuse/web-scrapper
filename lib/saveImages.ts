@@ -218,7 +218,6 @@ export function rewriteMarkdownImages(
 export class ImageDownloader {
   private queue: string[] = [];
   private seen = new Set<string>();
-  private timer: ReturnType<typeof setInterval> | null = null;
   private outputDir: string;
 
   constructor(outputDir: string) {
@@ -236,47 +235,41 @@ export class ImageDownloader {
   }
 
   start(): void {
-    if (this.timer) return;
-    this.timer = setInterval(() => this.poll(), 500);
-    // Unref so it doesn't keep the process alive
-    if (typeof this.timer === "object" && "unref" in this.timer) {
-      (this.timer as any).unref();
+    this.processLoop();
+  }
+
+  async stop(): Promise<void> {
+    this._stopped = true;
+    // Wait for queue + active to drain
+    while (this.queue.length > 0 || this.active > 0) {
+      await Bun.sleep(100);
     }
   }
 
-  stop(): void {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
-    // Flush remaining queue synchronously
-    this.flush();
-  }
+  private _stopped = false;
+  active = 0;
 
-  private flush(): void {
-    while (this.queue.length > 0) {
-      const batch = this.queue.splice(0, 20);
-      for (const url of batch) {
-        this.downloadSync(url);
+  private async processLoop(): Promise<void> {
+    while (!this._stopped || this.queue.length > 0 || this.active > 0) {
+      if (this.queue.length === 0) {
+        await Bun.sleep(200);
+        continue;
       }
+      const start = performance.now();
+      const batch = this.queue.splice(0, 20);
+      this.active += batch.length;
+      await Promise.allSettled(batch.map((url) => this.download(url)));
+      const elapsed = performance.now() - start;
+      if (elapsed < 500) await Bun.sleep(500 - elapsed);
     }
-  }
-
-  private poll(): void {
-    if (this.queue.length === 0) return;
-    const batch = this.queue.splice(0, 20);
-    Promise.allSettled(batch.map((url) => this.download(url))).catch(() => {});
   }
 
   private async download(url: string): Promise<void> {
-    await this.downloadInternal(url);
-  }
-
-  private downloadSync(url: string): void {
-    // Synchronous version for flush during shutdown
-    // Use synchronous fetch (node-fetch / Bun doesn't have sync HTTP)
-    // For stop() we skip download and just ensure queue is cleared
-    // The file will be picked up on next run
+    try {
+      await this.downloadInternal(url);
+    } finally {
+      this.active--;
+    }
   }
 
   private async downloadInternal(url: string): Promise<void> {

@@ -38,19 +38,14 @@ const CONVERTER =
 
 // ---- global map save for exit handlers ----
 let _pendingMapSave: (() => void) | null = null;
-let _pendingImageStop: (() => void) | null = null;
 
 function registerMapSave(fn: () => void): void {
   _pendingMapSave = fn;
 }
 
-function registerImageStop(fn: () => void): void {
-  _pendingImageStop = fn;
-}
-
-process.on("exit", () => { process.stderr.write("\n"); _pendingMapSave?.(); _pendingImageStop?.(); });
-process.on("SIGINT", () => { process.stderr.write("\n"); _pendingMapSave?.(); _pendingImageStop?.(); process.exit(130); });
-process.on("SIGTERM", () => { process.stderr.write("\n"); _pendingMapSave?.(); _pendingImageStop?.(); process.exit(143); });
+process.on("exit", () => { process.stderr.write("\n"); _pendingMapSave?.(); });
+process.on("SIGINT", () => { process.stderr.write("\n"); _pendingMapSave?.(); process.exit(130); });
+process.on("SIGTERM", () => { process.stderr.write("\n"); _pendingMapSave?.(); process.exit(143); });
 
 // ---- arg parsing ----
 
@@ -133,7 +128,6 @@ setSaveImages(saveImages);
 const imageDownloader = saveImages ? new ImageDownloader(outputDir) : null;
 if (imageDownloader) {
   imageDownloader.start();
-  registerImageStop(() => imageDownloader.stop());
 }
 
 const pipeMode = !hasFlags && !!singleUrl;
@@ -502,6 +496,6 @@ try {
     process.exit(1);
   }
 } finally {
-  imageDownloader?.stop();
+  await imageDownloader?.stop();
   getChromeSession()?.close();
 }
