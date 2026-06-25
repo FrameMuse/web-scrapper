@@ -94,7 +94,6 @@ async function downloadInternal(url: string): Promise<void> {
       try {
         const dims = sizeOf(buf);
         if ((dims.width && dims.width < 128) || (dims.height && dims.height < 128)) {
-          self.postMessage({ type: "error", message: `Image too small (${dims.width}x${dims.height}) for ${url}` });
           return;
         }
       } catch {}
