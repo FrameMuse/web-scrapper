@@ -350,3 +350,51 @@ describe("CDP blocking interaction", () => {
     expect(blocked.has("Image")).toBe(true);
   });
 });
+
+describe("ImageDownloader lifecycle", () => {
+  const OUT = "/tmp/test-imgdl-lifecycle";
+
+  test("constructor stores outputDir and referer", () => {
+    const dl = new ImageDownloader(OUT, "https://site.com/");
+    expect(dl.outputDir).toBe(OUT);
+    expect((dl as any).referer).toBe("https://site.com/");
+  });
+
+  test("constructor defaults referer to empty", () => {
+    const dl = new ImageDownloader(OUT);
+    expect((dl as any).referer).toBe("");
+  });
+
+  test("enqueue deduplicates without Worker", () => {
+    const dl = new ImageDownloader(OUT);
+    dl.enqueue("https://cdn.com/a.jpg");
+    dl.enqueue("https://cdn.com/a.jpg");
+    dl.enqueue("https://cdn.com/b.jpg");
+    expect(dl.enqueued).toBe(2);
+  });
+
+  test("enqueue before start does not crash", () => {
+    const dl = new ImageDownloader(OUT);
+    dl.enqueue("https://cdn.com/a.jpg");
+    expect(dl.enqueued).toBe(1);
+  });
+
+  test("start creates Worker and sends init", async () => {
+    const dl = new ImageDownloader(OUT);
+    dl.start();
+    expect((dl as any).worker).not.toBeNull();
+    await dl.stop();
+  });
+
+  test("start + stop lifecycle", async () => {
+    const dl = new ImageDownloader(OUT);
+    dl.start();
+    await dl.stop();
+    expect((dl as any).worker).toBeNull();
+  });
+
+  test("stop without start returns immediately", async () => {
+    const dl = new ImageDownloader(OUT);
+    await dl.stop();
+  });
+});
