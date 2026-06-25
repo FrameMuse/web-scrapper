@@ -201,6 +201,16 @@ class ChromeTab {
     // Kill pending JS and network — we already have the HTML
     this.cdp.send("Page.stopLoading");
 
+    // Check if page was redirected to a different domain (auth, sign-in, etc.)
+    const currentUrl = await this.cdp.evaluate("document.location.href");
+    try {
+      const originalHost = new URL(url).hostname;
+      const currentHost = new URL(currentUrl).hostname;
+      if (originalHost !== currentHost) {
+        return { html: "", contentType: mimeType };
+      }
+    } catch {}
+
     if (isChallengePage(html)) {
       console.error("  Captcha detected, waiting for solution...");
       const realHtml = await this.waitForContent();
