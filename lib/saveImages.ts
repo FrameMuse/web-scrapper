@@ -8,6 +8,7 @@ import {
 } from "./image-common.ts";
 export { IMAGE_EXTENSIONS, extensionFromMime, imageLocalPath } from "./image-common.ts";
 import { log } from "./runLogger.ts";
+import type { LinkDb } from "./linkDb.ts";
 
 export function isImageUrl(url: string): boolean {
   try {
@@ -62,7 +63,7 @@ export function preprocessImages(
   html: string,
   pageUrl: string,
   outputDir: string,
-  enqueue: (url: string, width?: number, height?: number) => void,
+  enqueue: (url: string, width?: number, height?: number, alt?: string) => void,
 ): string {
   // 1. Process <img> and <source> tags (single pass)
   html = html.replace(
@@ -87,6 +88,7 @@ export function preprocessImages(
       const dataSrc = attrValue(attrs, "data-src").replace(/&amp;/g, "&");
       const width = parseInt(attrValue(attrs, "width") || "");
       const height = parseInt(attrValue(attrs, "height") || "");
+      const alt = attrValue(attrs, "alt") || "";
 
       // If src is a placeholder/data-url and data-src exists, use data-src
       const url = (dataSrc && (isPlaceholder(src, width, height) || src.startsWith("data:"))) ? dataSrc : src;
@@ -96,7 +98,7 @@ export function preprocessImages(
         if (resolved && isImageUrl(resolved)) {
           const sizeOk = meetsMinSize(width || undefined, height || undefined);
           if (sizeOk !== false) {
-            enqueue(resolved);
+            enqueue(resolved, width || undefined, height || undefined, alt);
           }
         }
         // Rewrite src attribute when data-src was used
@@ -211,13 +213,17 @@ export function rewriteMarkdownImages(
 export class ImageDownloader {
   private worker: Worker | null = null;
   private _seen = new Set<string>();
+  private _db: LinkDb | null;
   outputDir: string;
   private referer: string;
 
-  constructor(outputDir: string, referer = "") {
+  constructor(outputDir: string, referer = "", db?: LinkDb) {
     this.outputDir = outputDir;
     this.referer = referer;
+    this._db = db ?? null;
   }
+
+  setDb(db: LinkDb): void { this._db = db; }
 
   enqueued = 0;
   completed = 0;
@@ -242,6 +248,8 @@ export class ImageDownloader {
         log("ERROR", data.message);
       } else if (data.type === "timing") {
         log("TIMING", `Image ${data.url}: ${data.ms}ms`, true);
+      } else if (data.type === "image-saved" && this._db) {
+        this._db.markImageDownloaded(data.url, data.localPath, data.width, data.height, data.format);
       }
     };
   }

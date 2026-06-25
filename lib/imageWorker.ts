@@ -47,12 +47,16 @@ async function downloadInternal(url: string): Promise<void> {
 
     const buf = Buffer.from(await res.arrayBuffer());
 
+    let imgW = 0;
+    let imgH = 0;
     if (buf.length > 0) {
       try {
         const dims = sizeOf(buf);
         if ((dims.width && dims.width < 128) || (dims.height && dims.height < 128)) {
           return;
         }
+        if (dims.width) imgW = dims.width;
+        if (dims.height) imgH = dims.height;
       } catch {}
     }
 
@@ -67,6 +71,14 @@ async function downloadInternal(url: string): Promise<void> {
     completed++;
     self.postMessage({ type: "progress", enqueued, completed });
     self.postMessage({ type: "timing", url, ms: elapsed });
+    self.postMessage({
+      type: "image-saved",
+      url,
+      localPath: localPath.replace(outputDir + "/", ""),
+      width: imgW,
+      height: imgH,
+      format: ct,
+    });
   } catch (e) {
     self.postMessage({ type: "error", message: `Image download error: ${e} for ${url}` });
   }

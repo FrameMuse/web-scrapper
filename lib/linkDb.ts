@@ -133,6 +133,27 @@ export class LinkDb {
     this.db.run("INSERT INTO logs (run_id, level, message) VALUES (?, ?, ?)", runId, level, message);
   }
 
+  appendImage(entries: { url: string; pageUrl: string; alt: string }[]): void {
+    if (entries.length === 0) return;
+    const stmt = this.db.prepare("INSERT OR IGNORE INTO images (url, page_url, alt) VALUES (?, ?, ?)");
+    const tx = this.db.transaction(() => {
+      for (const e of entries) stmt.run(e.url, e.pageUrl, e.alt);
+    });
+    tx();
+  }
+
+  markImageDownloaded(url: string, localPath: string, width: number, height: number, format: string): void {
+    this.db.run(
+      "UPDATE images SET downloaded=1, local_path=?, width=?, height=?, format=? WHERE url=?",
+      localPath, width, height, format, url,
+    );
+  }
+
+  imageCount(): number {
+    const row = this.db.query("SELECT COUNT(*) as c FROM images WHERE downloaded=1").get() as { c: number };
+    return row.c;
+  }
+
   getLogs(runId?: string, level?: string, limit = 100): { run_id: string; level: string; message: string; created_at: string }[] {
     let sql = "SELECT run_id, level, message, created_at FROM logs WHERE 1=1";
     const params: any[] = [];

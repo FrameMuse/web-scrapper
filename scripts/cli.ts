@@ -378,6 +378,7 @@ async function crawlLinks(): Promise<void> {
   if (db) {
     registerMapSave(() => db.close());
     setLoggerDb(db);
+    if (imageDownloader) imageDownloader.setDb(db);
   }
 
   // Resume from DB if present
@@ -404,6 +405,10 @@ async function crawlLinks(): Promise<void> {
       }
     }
     console.error(`Resuming ${queue.length} unprocessed of ${db.size()} discovered URLs.`);
+    // Seed image counter from existing DB state
+    if (imageDownloader && db.imageCount() > 0) {
+      imageDownloader.completed = db.imageCount();
+    }
   } else {
     visited.add(startNormalized);
     queue.push({ original: startUrl, normalized: startNormalized });
@@ -453,11 +458,14 @@ async function crawlLinks(): Promise<void> {
     visitedCount++;
 
     let contentHtml = extracted.contentHtml;
+    const pageImages: { url: string; pageUrl: string; alt: string }[] = [];
     if (imageDownloader) {
-      contentHtml = preprocessImages(contentHtml, url, outputDir, (imgUrl, w, h) => {
+      contentHtml = preprocessImages(contentHtml, url, outputDir, (imgUrl, w, h, alt) => {
         imageDownloader.enqueue(imgUrl, w, h);
+        pageImages.push({ url: imgUrl, pageUrl: url, alt: alt ?? "" });
       });
     }
+    if (db && pageImages.length > 0) db.appendImage(pageImages);
 
     contentHtml = stripExcludedLinks(contentHtml);
 
