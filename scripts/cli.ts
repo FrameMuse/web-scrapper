@@ -148,10 +148,7 @@ const mimeCache = new Map<string, boolean>();
 async function isMediaMime(url: string): Promise<boolean> {
   if (mimeCache.has(url)) return mimeCache.get(url)!;
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(url, { method: "HEAD", signal: controller.signal });
-    clearTimeout(timer);
+    const res = await fetch(url, { method: "HEAD" });
     const ct = res.headers.get("content-type") || "";
     const result = /^(image|video|audio)\//i.test(ct);
     mimeCache.set(url, result);
@@ -402,7 +399,6 @@ async function crawlLinks(): Promise<void> {
     // Queue discovered-but-not-visited URLs (never fetched)
     for (const url of db.allUrls()) {
       if (!queued.has(url) && !dbProcessed.has(url)) {
-        if (isMediaLink(url) || isExcluded(url)) continue;
         visited.add(url);
         queue.push({ original: url, normalized: url });
       }
@@ -465,12 +461,7 @@ async function crawlLinks(): Promise<void> {
 
     contentHtml = stripExcludedLinks(contentHtml);
 
-    let mdBody: string;
-    {
-      const t = performance.now();
-      mdBody = await htmlToMd(contentHtml);
-      log("TIMING", `htmlToMd ${url.slice(-40)}: ${(performance.now() - t).toFixed(0)}ms`);
-    }
+    let mdBody = await htmlToMd(contentHtml);
     mdBody = mdBody.replace(/\s*\[​\]\(#[^)]+\)/g, "");
     mdBody = mdBody.replace(/\\-/g, "-");
     let rewritten = rewriteLinks(mdBody, url, resolvedBaseUrl);
