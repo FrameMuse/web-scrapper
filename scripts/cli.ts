@@ -407,6 +407,63 @@ async function crawlLinks(): Promise<void> {
     process.stderr.write(`\r${line}`);
   }
 
+  async function processPage(url: string, normUrl: string): Promise<void> {
+    if (processed.has(normUrl)) return;
+    processed.add(normUrl);
+
+    const { html, contentType } = await fetchHtml(url);
+    if (map) markVisited(map, normUrl, contentType, url);
+
+    const allLinks = extractAllRawLinks(html, url, urlFilter, skipQuery);
+    if (map) addToMap(map, allLinks.map((l) => l.normalized));
+
+    const discovered = await extractLinks(html, url);
+    for (const { original: linkUrl, normalized } of discovered) {
+      if (!visited.has(normalized)) {
+        visited.add(normalized);
+        if (limit === undefined || processed.size + queue.length < limit) {
+          queue.push({ original: linkUrl, normalized });
+        }
+      }
+    }
+
+    const extracted = extract(html, selector, matchRe);
+    if (!extracted) {
+      console.error(`\n  No content found at ${url}`);
+      progress();
+      return;
+    }
+    visitedCount++;
+
+    let contentHtml = extracted.contentHtml;
+    if (imageDownloader) {
+      contentHtml = preprocessImages(contentHtml, url, outputDir, (imgUrl, w, h) => {
+        imageDownloader.enqueue(imgUrl, w, h);
+      });
+    }
+
+    contentHtml = stripExcludedLinks(contentHtml);
+
+    let mdBody = await htmlToMd(contentHtml);
+    mdBody = mdBody.replace(/\s*\[​\]\(#[^)]+\)/g, "");
+    mdBody = mdBody.replace(/\\-/g, "-");
+    let rewritten = rewriteLinks(mdBody, url, resolvedBaseUrl);
+    if (imageDownloader) {
+      rewritten = rewriteMarkdownImages(rewritten, outputDir);
+    }
+    const fm = renderFrontmatter({
+      title: extracted.title,
+      description: extracted.description,
+      source: url,
+      date: extracted.date,
+    });
+    const outPath = mdPath(outputDir, url, resolvedBaseUrl);
+    writeFile(outPath, fm + "\n" + rewritten + "\n");
+    if (map) markProcessed(map, normUrl);
+    processedCount++;
+    progress();
+  }
+
   while (queue.length > 0 && (limit === undefined || processed.size < limit)) {
     const batch = queue.splice(
       0,
@@ -414,70 +471,8 @@ async function crawlLinks(): Promise<void> {
     );
 
     const results = await Promise.allSettled(
-      batch.map(async ({ original: url, normalized: normUrl }) => {
-        if (processed.has(normUrl)) return;
-        processed.add(normUrl);
-
-        const { html, contentType } = await fetchHtml(url);
-
-        // Use normalized URL as map key for consistency
-        if (map) markVisited(map, normUrl, contentType, url);
-
-        // Track all discovered links (before filtering)
-        const allLinks = extractAllRawLinks(html, url, urlFilter, skipQuery);
-        if (map) addToMap(map, allLinks.map((l) => l.normalized));
-
-        // Discover new crawlable links (filtered)
-        const discovered = await extractLinks(html, url);
-        for (const { original: linkUrl, normalized } of discovered) {
-          if (!visited.has(normalized)) {
-            visited.add(normalized);
-            if (limit === undefined || processed.size + queue.length < limit) {
-              queue.push({ original: linkUrl, normalized });
-            }
-          }
-        }
-
-        // Scrape content
-        const extracted = extract(html, selector, matchRe);
-        if (!extracted) {
-          console.error(`\n  No content found at ${url}`);
-          progress();
-          return;
-        }
-        visitedCount++;
-
-        let contentHtml = extracted.contentHtml;
-        // Preprocess images before HTML-to-MD conversion
-        if (imageDownloader) {
-          contentHtml = preprocessImages(contentHtml, url, outputDir, (imgUrl, w, h) => {
-            imageDownloader.enqueue(imgUrl, w, h);
-          });
-        }
-
-        // Strip excluded links from HTML before conversion
-        contentHtml = stripExcludedLinks(contentHtml);
-
-        let mdBody = await htmlToMd(contentHtml);
-        mdBody = mdBody.replace(/\s*\[​\]\(#[^)]+\)/g, "");
-        mdBody = mdBody.replace(/\\-/g, "-");
-        let rewritten = rewriteLinks(mdBody, url, resolvedBaseUrl);
-        // Rewrite image URLs in markdown to local paths
-        if (imageDownloader) {
-          rewritten = rewriteMarkdownImages(rewritten, outputDir);
-        }
-        const fm = renderFrontmatter({
-          title: extracted.title,
-          description: extracted.description,
-          source: url,
-          date: extracted.date,
-        });
-        const outPath = mdPath(outputDir, url, resolvedBaseUrl);
-        writeFile(outPath, fm + "\n" + rewritten + "\n");
-        if (map) markProcessed(map, normUrl);
-        processedCount++;
-        progress();
-      })
+      batch.map(({ original: url, normalized: normUrl }) => processPage(url, normUrl))
+    );
     );
 
     for (const r of results) {

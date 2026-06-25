@@ -26,7 +26,7 @@ export function isImageUrl(url: string): boolean {
 
 export function pickHighestRes(srcset: string): string {
   const candidates: Array<{ url: string; priority: number }> = [];
-  const re = /(https?:\/\/[^\s,]+)\s*(\d+[wx]|\d+\.?\d*x)?/gi;
+  const re = /((?:https?:)?\/\/[^\s,]+)\s*(\d+[wx]|\d+\.?\d*x)?/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(srcset)) !== null) {
     const url = m[1].replace(/\/+$/, "");
