@@ -340,11 +340,15 @@ async function extractLinks(html: string, baseUrl: string): Promise<Array<{ orig
     mimeCheck.push(link);
   }
 
-  // MIME check (network, lazy)
-  for (const link of mimeCheck) {
-    if (!(await isMediaMime(link.original))) {
-      result.push(link);
-    }
+  // MIME check (network, lazy) — parallel
+  const mimeResults = await Promise.all(
+    mimeCheck.map(async (link) => ({
+      link,
+      isMedia: await isMediaMime(link.original),
+    }))
+  );
+  for (const { link, isMedia } of mimeResults) {
+    if (!isMedia) result.push(link);
   }
 
   return result;
