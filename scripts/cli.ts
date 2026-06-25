@@ -175,6 +175,13 @@ async function htmlToMd(html: string): Promise<string> {
   return out;
 }
 
+function stripExcludedLinks(html: string): string {
+  return html.replace(
+    /<a\b[^>]*href="([^"]*)"[^>]*>[\s\S]*?<\/a>\s*/gi,
+    (match, href) => isExcluded(href) ? '' : match,
+  );
+}
+
 async function scrapeOne(url: string): Promise<void> {
   const { html } = await fetchHtml(url);
   const extracted = extract(html, selector, matchRe);
@@ -190,6 +197,9 @@ async function scrapeOne(url: string): Promise<void> {
       imageDownloader.enqueue(imgUrl, w, h);
     });
   }
+
+  // Strip excluded links from HTML before conversion
+  contentHtml = stripExcludedLinks(contentHtml);
 
   let mdBody = await htmlToMd(contentHtml);
   // Strip Docusaurus-style hash-link anchors
@@ -427,6 +437,9 @@ async function crawlLinks(): Promise<void> {
             imageDownloader.enqueue(imgUrl, w, h);
           });
         }
+
+        // Strip excluded links from HTML before conversion
+        contentHtml = stripExcludedLinks(contentHtml);
 
         let mdBody = await htmlToMd(contentHtml);
         mdBody = mdBody.replace(/\s*\[​\]\(#[^)]+\)/g, "");
