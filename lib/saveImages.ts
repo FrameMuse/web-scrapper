@@ -6,8 +6,8 @@ import {
   extensionFromMime,
   imageLocalPath,
 } from "./image-common.ts";
-
 export { IMAGE_EXTENSIONS, extensionFromMime, imageLocalPath } from "./image-common.ts";
+import { log } from "./runLogger.ts";
 
 export function isImageUrl(url: string): boolean {
   try {
@@ -239,9 +239,9 @@ export class ImageDownloader {
         this.enqueued = data.enqueued;
         this.completed = data.completed;
       } else if (data.type === "error") {
-        console.error(`\n  ${data.message}`);
+        log("ERROR", data.message);
       } else if (data.type === "timing") {
-        console.error(`\n  Image ${data.url}: ${data.ms}ms`);
+        log("TIMING", `Image ${data.url}: ${data.ms}ms`);
       }
     };
   }

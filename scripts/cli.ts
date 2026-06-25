@@ -8,6 +8,7 @@ import { rewriteLinks } from "../lib/linkRewrite.ts";
 import { mdPath, writeFile } from "../lib/save.ts";
 import { join } from "path";
 import { LinkDb } from "../lib/linkDb.ts";
+import { initLogger, log, getRunId } from "../lib/runLogger.ts";
 import {
   fetchSitemap,
   loadCachedSitemap,
@@ -111,12 +112,15 @@ const saveImages = flags["save-images"] === "true";
 const singleUrl = positional[0];
 const resolvedBaseUrl = urlBase || urlFilter || (singleUrl ? singleUrl : "");
 
-if (buildMap && !followLinks) {
-  console.error("--build-map requires --follow-links");
+        if (buildMap && !followLinks) {
+  log("ERROR", "--build-map requires --follow-links");
   process.exit(1);
 }
 
 const resolvedConcurrent = concurrent;
+initLogger(outputDir);
+log("INFO", `outputDir=${outputDir} resolvedBaseUrl=${resolvedBaseUrl}`);
+
 if (useChrome) setChromeEnabled(true, concurrent);
 
 const imageDownloader = saveImages ? new ImageDownloader(outputDir, resolvedBaseUrl) : null;
@@ -429,9 +433,9 @@ async function crawlLinks(): Promise<void> {
     }
 
     const extracted = extract(html, selector, matchRe);
-    if (!extracted) {
-      console.error(`\n  No content found at ${url}`);
-      progress();
+        if (!extracted) {
+          log("WARN", `No content found at ${url}`);
+          progress();
       return;
     }
     visitedCount++;
@@ -477,7 +481,7 @@ async function crawlLinks(): Promise<void> {
 
     for (const r of results) {
       if (r.status === "rejected") {
-        console.error(`\n  \u2717 ${r.reason}`);
+        log("ERROR", `${r.reason}`);
         progress();
       }
     }
