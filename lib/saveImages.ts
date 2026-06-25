@@ -90,13 +90,13 @@ export function preprocessImages(
   html = html.replace(
     /<img\b([^>]*?)>/gi,
     (match: string, attrs: string) => {
-      const src = attrValue(attrs, "src");
-      const dataSrc = attrValue(attrs, "data-src");
+      const src = attrValue(attrs, "src").replace(/&amp;/g, "&");
+      const dataSrc = attrValue(attrs, "data-src").replace(/&amp;/g, "&");
       const width = parseInt(attrValue(attrs, "width") || "");
       const height = parseInt(attrValue(attrs, "height") || "");
 
-      // If src is a placeholder and data-src exists, use data-src
-      const url = (dataSrc && isPlaceholder(src)) ? dataSrc : src;
+      // If src is a placeholder/data-url and data-src exists, use data-src
+      const url = (dataSrc && (isPlaceholder(src) || src.startsWith("data:"))) ? dataSrc : src;
 
       if (url && !url.startsWith("data:") && !url.startsWith("#")) {
         const resolved = resolveUrl(url, pageUrl);
