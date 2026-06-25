@@ -124,6 +124,10 @@ export function preprocessImages(
             enqueue(resolved);
           }
         }
+        // Rewrite src attribute when data-src was used
+        if (url === dataSrc) {
+          match = match.replace(/src="[^"]*"/, `src="${resolved ?? url}"`);
+        }
       }
 
       // srcset (responsive images)
@@ -134,6 +138,12 @@ export function preprocessImages(
           const resolved = resolveUrl(best, pageUrl);
           if (resolved && isImageUrl(resolved)) {
             enqueue(resolved);
+            // Rewrite srcset attribute when data-srcset was used
+            const originalSrcset = attrValue(attrs, "srcset");
+            if (!originalSrcset) {
+              match = match.replace(/srcset="[^"]*"/, `srcset="${resolved}"`);
+              match = match.replace(/data-srcset="[^"]*"/, "");
+            }
           }
         }
       }
