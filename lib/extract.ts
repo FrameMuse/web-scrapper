@@ -48,30 +48,33 @@ function cssToOpenRegex(parsed: ReturnType<typeof parseCssSelector>): RegExp {
 
 /** Walk forward from pos, count balanced tags of given name */
 function findCloseTag(html: string, tag: string, pos: number): number | null {
-  const openTag = `<${tag}`;
-  const closeFull = `</${tag}>`;
-  const openLen = openTag.length;
-  const closeLen = closeFull.length;
+  const openPrefix = `<${tag}`;
+  const closePrefix = `</${tag}`;
+  const openLen = openPrefix.length;
   let depth = 1;
   let i = pos;
 
   while (i < html.length) {
-    const nextClose = html.indexOf(closeFull, i);
+    const nextClose = html.indexOf(closePrefix, i);
     if (nextClose === -1) return null;
 
-    const nextOpen = html.indexOf(openTag, i);
+    const nextOpen = html.indexOf(openPrefix, i);
     if (nextOpen !== -1 && nextOpen < nextClose) {
-      const nextChar = html[nextOpen + openLen];
-      if (nextChar === undefined || nextChar === ' ' || nextChar === '>' || nextChar === '/' || nextChar === '\t' || nextChar === '\n') {
+      const c = html[nextOpen + openLen];
+      if (c === undefined || c === ' ' || c === '>' || c === '/' || c === '\t' || c === '\n') {
         depth++;
-        i = nextOpen + openLen;
-      } else {
-        i = nextOpen + openLen;
       }
+      i = nextOpen + openLen;
     } else {
-      depth--;
-      if (depth === 0) return nextClose + closeLen;
-      i = nextClose + closeLen;
+      let after = nextClose + closePrefix.length;
+      while (after < html.length && (html[after] === ' ' || html[after] === '\t' || html[after] === '\n')) after++;
+      if (after < html.length && html[after] === '>') {
+        depth--;
+        if (depth === 0) return after + 1;
+        i = after + 1;
+      } else {
+        i = nextClose + closePrefix.length;
+      }
     }
   }
   return null;
@@ -84,29 +87,6 @@ function tryExtract(html: string, openRe: RegExp, tag: string): string | null {
   const start = m.index;
   const afterOpen = start + m[0].length;
 
-  // Check if match sits inside an <article> with a <header> before it
-  // (e.g. blog pages where h1 title lives in article > header, outside content div)
-  const beforeMatch = html.substring(0, start);
-  const articleOpenIdx = beforeMatch.lastIndexOf("<article");
-  const lastArticleCloseIdx = beforeMatch.lastIndexOf("</article>");
-  if (articleOpenIdx !== -1 && articleOpenIdx > lastArticleCloseIdx) {
-    const betweenArticleAndMatch = html.substring(articleOpenIdx, start);
-    // Only include article if there's an h1 in a header before the match
-    // (this avoids including breadcrumbs and other nav)
-    if (/<header\b/i.test(betweenArticleAndMatch)) {
-      const articleEnd = findCloseTag(html, "article", articleOpenIdx + 8);
-      if (articleEnd) return html.substring(articleOpenIdx, articleEnd);
-    }
-  }
-
-  // Prefer </article> boundary if <article> exists after match
-  const articleIdx = html.indexOf("<article", afterOpen);
-  if (articleIdx !== -1) {
-    const end = findCloseTag(html, "article", articleIdx);
-    if (end) return html.substring(start, end);
-  }
-
-  // Fall back to balanced tag matching for the matched element
   const end = findCloseTag(html, tag, afterOpen);
   if (end) return html.substring(start, end);
 

@@ -58,19 +58,18 @@ describe("update page (blog)", () => {
     expect(r).not.toBeNull();
     expect(r!.title).toBe("Version 1, Update 1");
     expect(r!.date).toBe("2019-08-21");
-    expect(r!.contentHtml).toContain("Version 1, Update 1");
   });
 
-  test("includes article header for blog layout", () => {
+  test("content does not expand to article boundary", () => {
     const r = extract(updateHtml, [
       "div.theme-doc-markdown.markdown",
       "div#__blog-post-container.markdown",
     ]);
     expect(r).not.toBeNull();
-    // Should include the H1 from article > header (has class attr in real HTML)
-    expect(r!.contentHtml).toContain("Version 1, Update 1");
-    // Should include the date text
-    expect(r!.contentHtml).toContain("August 21, 2019");
+    // Title and date live in <article><header>, outside the matched div
+    expect(r!.contentHtml).not.toContain("Version 1, Update 1");
+    expect(r!.contentHtml).not.toContain("August 21, 2019");
+    expect(r!.contentHtml).toContain("first update to the plugins API");
   });
 });
 

@@ -141,12 +141,13 @@ describe("extract with nested tags", () => {
     expect(r!.contentHtml).toContain("</div>");
   });
 
-  test("article boundary", () => {
+  test("matches exact element, does not expand to parent", () => {
     const html =
       "<article><header><h1>Title</h1></header><div class=\"post\"><p>Body</p></div></article>";
     const r = extract(html, [".post"]);
     expect(r).not.toBeNull();
-    expect(r!.contentHtml).toContain("<h1>Title</h1>");
+    expect(r!.contentHtml).not.toContain("<h1>Title</h1>");
+    expect(r!.contentHtml).toContain("<p>Body</p>");
   });
 });
 
