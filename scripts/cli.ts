@@ -1,32 +1,31 @@
 #!/usr/bin/env bun
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";
-import { fetchHtml, setChromeEnabled, getChromeSession } from "../lib/fetchHtml.ts";
-import { extract } from "../lib/extract.ts";
-import { renderFrontmatter } from "../lib/frontmatter.ts";
-import { rewriteLinks } from "../lib/linkRewrite.ts";
-import { mdPath, writeFile } from "../lib/save.ts";
 import { join } from "path";
+import { extract } from "../lib/extract.ts";
+import { fetchHtml, getChromeSession, setChromeEnabled } from "../lib/fetchHtml.ts";
+import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { LinkDb } from "../lib/linkDb.ts";
-import { initLogger, log, getRunId, setLoggerDb } from "../lib/runLogger.ts";
+import { rewriteLinks } from "../lib/linkRewrite.ts";
 import {
-  fetchSitemap,
-  loadCachedSitemap,
-  saveSitemapCache,
-  diffUrls,
-  findMissingFiles,
-} from "../lib/sitemap.ts";
+  extractAllRawLinks,
+  hasMediaExtension,
+  normalizeUrl
+} from "../lib/links.ts";
+import { initLogger, log, setLoggerDb } from "../lib/runLogger.ts";
+import { mdPath, writeFile } from "../lib/save.ts";
 import {
+  ImageDownloader,
   preprocessImages,
   rewriteMarkdownImages,
-  ImageDownloader,
 } from "../lib/saveImages.ts";
 import {
-  MEDIA_EXTENSIONS,
-  isMediaLink,
-  normalizeUrl,
-  extractAllRawLinks,
-} from "../lib/links.ts";
+  diffUrls,
+  fetchSitemap,
+  findMissingFiles,
+  loadCachedSitemap,
+  saveSitemapCache,
+} from "../lib/sitemap.ts";
 
 const CONVERTER =
   import.meta.dirname + "/../rust-converter/target/release/html-to-md";
@@ -91,7 +90,7 @@ function expandTilde(s: string): string {
 
 const selector = (flags["selector"] as string[]) ?? [];
 const codeBy = (flags["codeBy"] as string[]) ?? [];
-const exclude = (flags["exclude"] as string[]) ?? [];
+const exclude = ((flags["exclude"] as string[]) ?? []).map(p => new RegExp(p))
 const matchRe = flags["match"] as string | undefined;
 const urlBase = flags["url-base"] as string | undefined;
 const urlFilter = (flags["url-filter"] as string) ?? urlBase;
@@ -138,9 +137,7 @@ if (hasFlags && !urlBase && !urlFilter) {
 // ---- link filters ----
 
 function isExcluded(url: string): boolean {
-  return exclude.some((p) => {
-    try { return new RegExp(p).test(url); } catch { return false; }
-  });
+  return exclude.some(p => p.test(url));
 }
 
 const mimeCache = new Map<string, boolean>();
@@ -339,7 +336,7 @@ async function extractLinks(html: string, baseUrl: string): Promise<Array<{ orig
   const result: Array<{ original: string; normalized: string }> = [];
   const mimeCheck: Array<{ original: string; normalized: string }> = [];
   for (const link of candidates) {
-    if (isMediaLink(link.original) || isExcluded(link.original)) continue;
+    if (hasMediaExtension(link.original) || isExcluded(link.original)) continue;
     mimeCheck.push(link);
   }
 

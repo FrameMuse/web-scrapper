@@ -1,18 +1,22 @@
-export const MEDIA_EXTENSIONS = [
+import { log } from "./runLogger"
+
+export const MEDIA_EXTENSIONS = new Set([
   ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp", ".ico",
   ".mp4", ".webm", ".avi", ".mov", ".mkv",
   ".mp3", ".wav", ".ogg", ".flac",
   ".pdf", ".doc", ".docx", ".zip", ".rar", ".7z", ".tar", ".gz",
   ".css", ".js", ".json", ".xml", ".rss", ".atom",
-];
+])
 
-export function isMediaLink(url: string): boolean {
-  try {
-    const path = new URL(url).pathname.toLowerCase();
-    return MEDIA_EXTENSIONS.some((ext) => path.endsWith(ext));
-  } catch { return false; }
+export function hasMediaExtension(url: string): boolean {
+  const path = new URL(url).pathname
+  const pathEnding = path.substring(path.lastIndexOf(".")).toLowerCase()
+  if (!pathEnding) return false
+
+  return MEDIA_EXTENSIONS.has(pathEnding)
 }
 
+/** No trailing slash appended, just cleanup URL. */
 export function normalizeUrl(u: string): string {
   const hashIdx = u.indexOf("#");
   if (hashIdx !== -1) u = u.substring(0, hashIdx);
@@ -26,27 +30,31 @@ export function extractAllRawLinks(
   urlFilter?: string,
   skipQuery = false,
 ): Array<{ original: string; normalized: string }> {
+  const seen = new Set<string>();
+  
   const raw: Array<{ original: string; normalized: string }> = [];
   const re = /<a\b[^>]*href=(?:"([^"]*)"|'([^']*)')[^>]*>/gi;
   let m: RegExpExecArray | null;
+  let href = ""
   while ((m = re.exec(html)) !== null) {
     try {
-      const href = m[1] ?? m[2];
+      href = m[1] ?? m[2];
       if (!href) continue;
 
       const resolved = new URL(href, baseUrl).href;
       const clean = skipQuery ? resolved.replace(/\?.*$/, "") : resolved;
       const normalized = normalizeUrl(clean);
       if (!urlFilter || normalized.startsWith(normalizeUrl(urlFilter))) {
+        if (seen.has(normalized)) continue
+        seen.add(normalized);
+        
         raw.push({ original: resolved, normalized });
       }
-    } catch {}
+    } catch (error) {
+      log("WARN", `URL parsing/encoding failed during extraction: ${href}; ${error}`);
+    }
   }
 
-  const seen = new Set<string>();
-  return raw.filter(({ normalized }) => {
-    if (seen.has(normalized)) return false;
-    seen.add(normalized);
-    return true;
-  });
+
+  return raw
 }

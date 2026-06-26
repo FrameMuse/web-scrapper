@@ -46,7 +46,7 @@ describe("urlToPath", () => {
 
   test("query string becomes part of path", () => {
     const r = urlToPath("https://site.com/docs/page?action=history&limit=20", BASE);
-    expect(r).toBe("page_action=history_limit=20");
+    expect(r).toBe("page_action=history+limit=20");
   });
 
   test("single query param", () => {

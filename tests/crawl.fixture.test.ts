@@ -1,23 +1,9 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { extract } from "../lib/extract.ts";
-import { fetchHtml, setChromeEnabled } from "../lib/fetchHtml.ts";
+import { hasMediaExtension } from "../lib/links.ts";
 
-// Replicate filter constants (same as cli.ts)
-const MEDIA_EXTENSIONS = [
-  ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp", ".ico",
-  ".mp4", ".webm", ".avi", ".mov", ".mkv",
-  ".mp3", ".wav", ".ogg", ".flac",
-  ".pdf", ".doc", ".docx", ".zip", ".rar", ".7z", ".tar", ".gz",
-  ".css", ".js", ".json", ".xml", ".rss", ".atom",
-];
 
-function isMediaLink(url: string): boolean {
-  try {
-    const path = new URL(url).pathname.toLowerCase();
-    return MEDIA_EXTENSIONS.some((ext) => path.endsWith(ext));
-  } catch { return false; }
-}
 
 function isExcluded(url: string, patterns: string[]): boolean {
   return patterns.some((p) => {
@@ -34,36 +20,30 @@ function isChallengePage(html: string): boolean {
   );
 }
 
-function normalizeUrl(u: string): string {
-  const hashIdx = u.indexOf("#");
-  if (hashIdx !== -1) u = u.substring(0, hashIdx);
-  return u.replace(/\/+$/, "");
-}
-
 const FIXTURE_BASE = "file://" + __dirname + "/fixtures/crawl/";
 
 describe("crawl fixtures", () => {
-  test("isMediaLink filters image extensions", () => {
-    expect(isMediaLink("https://site.com/image.jpg")).toBe(true);
-    expect(isMediaLink("https://site.com/image.png")).toBe(true);
-    expect(isMediaLink("https://site.com/image.gif")).toBe(true);
-    expect(isMediaLink("https://site.com/image.svg")).toBe(true);
-    expect(isMediaLink("https://site.com/page.html")).toBe(false);
-    expect(isMediaLink("https://site.com/page.php")).toBe(false);
-    expect(isMediaLink("https://site.com/assets/image.jpg?w=200")).toBe(true);
-    expect(isMediaLink("https://site.com/image.JPG")).toBe(true);
+  test("hasMediaExtension filters image extensions", () => {
+    expect(hasMediaExtension("https://site.com/image.jpg")).toBe(true);
+    expect(hasMediaExtension("https://site.com/image.png")).toBe(true);
+    expect(hasMediaExtension("https://site.com/image.gif")).toBe(true);
+    expect(hasMediaExtension("https://site.com/image.svg")).toBe(true);
+    expect(hasMediaExtension("https://site.com/page.html")).toBe(false);
+    expect(hasMediaExtension("https://site.com/page.php")).toBe(false);
+    expect(hasMediaExtension("https://site.com/assets/image.jpg?w=200")).toBe(true);
+    expect(hasMediaExtension("https://site.com/image.JPG")).toBe(true);
   });
 
-  test("isMediaLink filters video and audio", () => {
-    expect(isMediaLink("https://site.com/video.mp4")).toBe(true);
-    expect(isMediaLink("https://site.com/audio.mp3")).toBe(true);
-    expect(isMediaLink("https://site.com/video.webm")).toBe(true);
+  test("hasMediaExtension filters video and audio", () => {
+    expect(hasMediaExtension("https://site.com/video.mp4")).toBe(true);
+    expect(hasMediaExtension("https://site.com/audio.mp3")).toBe(true);
+    expect(hasMediaExtension("https://site.com/video.webm")).toBe(true);
   });
 
-  test("isMediaLink filters documents", () => {
-    expect(isMediaLink("https://site.com/doc.pdf")).toBe(true);
-    expect(isMediaLink("https://site.com/doc.zip")).toBe(true);
-    expect(isMediaLink("https://site.com/style.css")).toBe(true);
+  test("hasMediaExtension filters documents", () => {
+    expect(hasMediaExtension("https://site.com/doc.pdf")).toBe(true);
+    expect(hasMediaExtension("https://site.com/doc.zip")).toBe(true);
+    expect(hasMediaExtension("https://site.com/style.css")).toBe(true);
   });
 
   test("isExcluded matches URL patterns", () => {
@@ -128,8 +108,8 @@ describe("crawl fixtures", () => {
     let m: RegExpExecArray | null;
     while ((m = re.exec(html)) !== null) {
       const resolved = new URL(m[1], FIXTURE_BASE).href;
-      const isFiltered = isMediaLink(resolved) || isExcluded(resolved, patterns);
-      const shouldFilter = isMediaLink(resolved) || patterns.some((p) => new RegExp(p).test(resolved));
+      const isFiltered = hasMediaExtension(resolved) || isExcluded(resolved, patterns);
+      const shouldFilter = hasMediaExtension(resolved) || patterns.some((p) => new RegExp(p).test(resolved));
       expect(isFiltered).toBe(shouldFilter);
     }
   });
