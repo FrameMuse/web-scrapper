@@ -1,57 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { extract, DEFAULT_SELECTORS } from "../lib/extract.ts";
 
-// ---- parseCssSelector ----
-
-function parseCssSelector(sel: string) {
-  const parts = sel.split(/(?=[#.])/);
-  let tag = "div";
-  let id: string | undefined;
-  const classes: string[] = [];
-  for (const p of parts) {
-    if (p.startsWith(".")) classes.push(p.slice(1));
-    else if (p.startsWith("#")) id = p.slice(1);
-    else tag = p;
-  }
-  return { tag, id, classes };
-}
-
-describe("parseCssSelector", () => {
-  test("class only", () => {
-    const r = parseCssSelector(".foo");
-    expect(r.tag).toBe("div");
-    expect(r.classes).toEqual(["foo"]);
-    expect(r.id).toBeUndefined();
-  });
-
-  test("id only", () => {
-    const r = parseCssSelector("#bar");
-    expect(r.tag).toBe("div");
-    expect(r.id).toBe("bar");
-    expect(r.classes).toEqual([]);
-  });
-
-  test("tag + class", () => {
-    const r = parseCssSelector("div.foo");
-    expect(r.tag).toBe("div");
-    expect(r.classes).toEqual(["foo"]);
-  });
-
-  test("tag + id + multiple classes", () => {
-    const r = parseCssSelector("div#bar.baz.qux");
-    expect(r.tag).toBe("div");
-    expect(r.id).toBe("bar");
-    expect(r.classes).toEqual(["baz", "qux"]);
-  });
-
-  test("bare tag", () => {
-    const r = parseCssSelector("article");
-    expect(r.tag).toBe("article");
-    expect(r.id).toBeUndefined();
-    expect(r.classes).toEqual([]);
-  });
-});
-
 // ---- extract ----
 
 describe("extract selectors", () => {
