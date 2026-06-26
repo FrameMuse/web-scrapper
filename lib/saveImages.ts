@@ -39,8 +39,7 @@ export function pickHighestRes(srcset: string): string {
     candidates.push({ url, priority });
   }
   if (candidates.length === 0) return "";
-  candidates.sort((a, b) => b.priority - a.priority);
-  return candidates[0].url;
+  return candidates.reduce((best, c) => c.priority > best.priority ? c : best).url;
 }
 
 export function meetsMinSize(
@@ -59,18 +58,30 @@ function shortHash(s: string): string {
   return createHash("md5").update(s).digest("hex").slice(0, 8);
 }
 
+function parseAttrs(attrs: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const re = /(\w[\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(attrs)) !== null) {
+    result[m[1].toLowerCase()] = m[2] ?? m[3];
+  }
+  return result;
+}
+
 export function preprocessImages(
   html: string,
   pageUrl: string,
   outputDir: string,
   enqueue: (url: string, width?: number, height?: number, alt?: string) => void,
 ): string {
-  // 1. Process <img> and <source> tags (single pass)
+  // 1. Process <img>, <source> tags, and inline data:image URLs
   html = html.replace(
     /<(img|source)\b([^>]*?)>/gi,
     (match: string, tag: string, attrs: string) => {
+      const a = parseAttrs(attrs);
+
       if (tag.toLowerCase() === "source") {
-        const srcset = attrValue(attrs, "srcset").replace(/&amp;/g, "&");
+        const srcset = (a.srcset || "").replace(/&amp;/g, "&");
         if (srcset) {
           const best = pickHighestRes(srcset);
           if (best) {
@@ -83,14 +94,30 @@ export function preprocessImages(
         return match;
       }
 
-      // <img> tag handling
-      const src = attrValue(attrs, "src").replace(/&amp;/g, "&");
-      const dataSrc = attrValue(attrs, "data-src").replace(/&amp;/g, "&");
-      const width = parseInt(attrValue(attrs, "width") || "");
-      const height = parseInt(attrValue(attrs, "height") || "");
-      const alt = attrValue(attrs, "alt") || "";
+      // <img> tag
+      const src = (a.src || "").replace(/&amp;/g, "&");
+      const dataSrc = (a["data-src"] || "").replace(/&amp;/g, "&");
+      const width = parseInt(a.width || "");
+      const height = parseInt(a.height || "");
+      const alt = a.alt || "";
 
-      // If src is a placeholder/data-url and data-src exists, use data-src
+      // Handle data:image inline — decode + save + replace src
+      if (src.startsWith("data:image/") && !dataSrc) {
+        const b64m = src.match(/^data:image\/([a-z+]+);base64,([^"]+)/);
+        if (b64m) {
+          const ext = b64m[1] === "svg+xml" ? ".svg" : "." + b64m[1].replace("+xml", "");
+          const raw = Buffer.from(b64m[2], "base64");
+          const hash = shortHash(raw.toString("base64"));
+          const localPath = `_data/${hash}${ext}`;
+          const fullPath = join(outputDir, "images", "_data", `${hash}${ext}`);
+          mkdirSync(dirname(fullPath), { recursive: true });
+          if (!existsSync(fullPath)) writeFileSync(fullPath, raw);
+          match = match.replace(/src="[^"]*"/, `src="${localPath}"`);
+        }
+        return match;
+      }
+
+      // Normal image (or data-src replaces data:image placeholder)
       const url = (dataSrc && (isPlaceholder(src, width, height) || src.startsWith("data:"))) ? dataSrc : src;
 
       if (url && !url.startsWith("data:") && !url.startsWith("#")) {
@@ -101,23 +128,20 @@ export function preprocessImages(
             enqueue(resolved, width || undefined, height || undefined, alt);
           }
         }
-        // Rewrite src attribute when data-src was used
         if (url === dataSrc) {
           match = match.replace(/src="[^"]*"/, `src="${resolved ?? url}"`);
         }
       }
 
       // srcset (responsive images)
-      const srcset = (attrValue(attrs, "srcset") || attrValue(attrs, "data-srcset")).replace(/&amp;/g, "&");
+      const srcset = (a.srcset || a["data-srcset"] || "").replace(/&amp;/g, "&");
       if (srcset) {
         const best = pickHighestRes(srcset);
         if (best) {
           const resolved = resolveUrl(best, pageUrl);
           if (resolved && isImageUrl(resolved)) {
             enqueue(resolved);
-            // Rewrite srcset attribute when data-srcset was used
-            const originalSrcset = attrValue(attrs, "srcset");
-            if (!originalSrcset) {
+            if (!a.srcset) {
               match = match.replace(/srcset="[^"]*"/, `srcset="${resolved}"`);
               match = match.replace(/data-srcset="[^"]*"/, "");
             }
@@ -129,7 +153,7 @@ export function preprocessImages(
     },
   );
 
-  // 3. Inline <svg> → hash + save as file + replace with <img>
+  // 2. Inline <svg> → hash + save as file + replace with <img>
   html = html.replace(
     /<svg[\s\S]*?<\/svg>/gi,
     (match: string) => {
@@ -146,31 +170,7 @@ export function preprocessImages(
     },
   );
 
-  // 4. data:image URLs → decode, save, replace src
-  html = html.replace(
-    /src="(data:image\/([a-z+]+);base64,([^"]+))"/gi,
-    (_match: string, _full: string, mimeSub: string, b64: string) => {
-      const ext = mimeSub === "svg+xml" ? ".svg" : "." + mimeSub.replace("+xml", "");
-      const raw = Buffer.from(b64, "base64");
-      const hash = shortHash(raw.toString("base64"));
-      const localPath = `_data/${hash}${ext}`;
-      const fullPath = join(outputDir, "images", "_data", `${hash}${ext}`);
-      const dir = dirname(fullPath);
-      if (!existsSync(fullPath)) {
-        mkdirSync(dir, { recursive: true });
-        writeFileSync(fullPath, raw);
-      }
-      return `src="${localPath}"`;
-    },
-  );
-
   return html;
-}
-
-function attrValue(attrs: string, name: string): string {
-  const re = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i");
-  const m = re.exec(attrs);
-  return m ? (m[1] ?? m[2]) : "";
 }
 
 function isPlaceholder(src: string, width?: number, height?: number): boolean {

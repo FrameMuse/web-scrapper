@@ -1,14 +1,19 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { fetchHtml } from "./fetchHtml";
+import { urlToPath } from "./save";
+
+function parseSitemapUrls(xml: string): string[] {
+  const locs = xml.match(/<loc>([^<]+)<\/loc>/g);
+  return locs ? locs.map((l) => l.replace(/<\/?loc>/g, "")) : [];
+}
 
 export async function fetchSitemap(
   url: string
 ): Promise<{ xml: string; urls: string[] }> {
   const { html: xml } = await fetchHtml(url);
-  const locs = xml.match(/<loc>([^<]+)<\/loc>/g);
-  if (!locs) throw new Error("No <loc> entries found in sitemap");
-  const urls = locs.map((l) => l.replace(/<\/?loc>/g, ""));
+  const urls = parseSitemapUrls(xml);
+  if (urls.length === 0) throw new Error("No <loc> entries found in sitemap");
   return { xml, urls };
 }
 
@@ -23,11 +28,7 @@ export function loadCachedSitemap(outputDir: string): {
   const path = cachedSitemapPath(outputDir);
   if (!existsSync(path)) return null;
   const xml = readFileSync(path, "utf-8");
-  const locs = xml.match(/<loc>([^<]+)<\/loc>/g);
-  const urls = locs
-    ? locs.map((l) => l.replace(/<\/?loc>/g, ""))
-    : [];
-  return { xml, urls };
+  return { xml, urls: parseSitemapUrls(xml) };
 }
 
 export function saveSitemapCache(outputDir: string, xml: string): void {
@@ -49,7 +50,6 @@ export function findMissingFiles(
   urls: string[],
   urlBase: string
 ): string[] {
-  const { urlToPath } = require("./save");
   return urls.filter((u) => {
     const rel = urlToPath(u, urlBase);
     return !existsSync(join(outputDir, rel + ".md"));

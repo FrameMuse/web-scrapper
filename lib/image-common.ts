@@ -3,6 +3,7 @@ import { join } from "path";
 export const IMAGE_EXTENSIONS = new Set([
   ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp", ".ico",
 ]);
+export const IMAGE_EXTENSIONS_ARRAY = [...IMAGE_EXTENSIONS];
 
 const MIME_EXT_MAP: Record<string, string> = {
   "image/jpeg": ".jpg",
@@ -29,7 +30,7 @@ export function imageLocalPath(outputDir: string, url: string): string {
 
   const segments = path.split("/");
   const extIdx = segments.findIndex((seg) =>
-    [...IMAGE_EXTENSIONS].some((ext) => seg.toLowerCase().endsWith(ext)),
+    IMAGE_EXTENSIONS_ARRAY.some((ext) => seg.toLowerCase().endsWith(ext)),
   );
 
   if (extIdx === -1) {
@@ -37,7 +38,7 @@ export function imageLocalPath(outputDir: string, url: string): string {
   }
 
   const extSeg = segments[extIdx];
-  const ext = [...IMAGE_EXTENSIONS].find((e) => extSeg.toLowerCase().endsWith(e))!;
+  const ext = IMAGE_EXTENSIONS_ARRAY.find((e) => extSeg.toLowerCase().endsWith(e))!;
   const baseName = extSeg.slice(0, -ext.length);
 
   const dirSegments = segments.slice(0, extIdx);

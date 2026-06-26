@@ -6,6 +6,7 @@ export const DEFAULT_SELECTORS = [
   ".post",
   ".entry",
   ".document",
+  "#root",
   "body",
 ];
 
@@ -30,11 +31,6 @@ function parseCssSelector(sel: string) {
   return { tag, id, classes };
 }
 
-/** Escape regex special chars */
-function esc(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /** Build opening tag regex from CSS selector */
 function cssToOpenRegex(parsed: ReturnType<typeof parseCssSelector>): RegExp {
   const { tag, id, classes } = parsed;
@@ -42,7 +38,7 @@ function cssToOpenRegex(parsed: ReturnType<typeof parseCssSelector>): RegExp {
   if (id) constraints.push(`id="${id}"`);
   if (classes.length > 0) {
     // All classes within the same class="..." attribute
-    const classPatterns = classes.map((c) => "\\b" + esc(c) + "\\b");
+    const classPatterns = classes.map((c) => "\\b" + RegExp.escape(c) + "\\b");
     const classInner = classPatterns.join('[^"]*');
     constraints.push('class="[^"]*' + classInner + '[^"]*"');
   }
@@ -52,24 +48,30 @@ function cssToOpenRegex(parsed: ReturnType<typeof parseCssSelector>): RegExp {
 
 /** Walk forward from pos, count balanced tags of given name */
 function findCloseTag(html: string, tag: string, pos: number): number | null {
-  const openRe = new RegExp(`<${tag}\\b[^>]*?>`, "gi");
-  const closeRe = new RegExp(`</${tag}\\s*>`, "gi");
-  openRe.lastIndex = pos;
-  closeRe.lastIndex = pos;
+  const openTag = `<${tag}`;
+  const closeFull = `</${tag}>`;
+  const openLen = openTag.length;
+  const closeLen = closeFull.length;
   let depth = 1;
-  while (depth > 0) {
-    const o = openRe.exec(html);
-    const c = closeRe.exec(html);
-    if (!c) return null;
-    if (o && o.index < c.index) {
-      depth++;
-      openRe.lastIndex = o.index + o[0].length;
-      closeRe.lastIndex = openRe.lastIndex;
+  let i = pos;
+
+  while (i < html.length) {
+    const nextClose = html.indexOf(closeFull, i);
+    if (nextClose === -1) return null;
+
+    const nextOpen = html.indexOf(openTag, i);
+    if (nextOpen !== -1 && nextOpen < nextClose) {
+      const nextChar = html[nextOpen + openLen];
+      if (nextChar === undefined || nextChar === ' ' || nextChar === '>' || nextChar === '/' || nextChar === '\t' || nextChar === '\n') {
+        depth++;
+        i = nextOpen + openLen;
+      } else {
+        i = nextOpen + openLen;
+      }
     } else {
       depth--;
-      if (depth === 0) return c.index + c[0].length;
-      openRe.lastIndex = c.index + c[0].length;
-      closeRe.lastIndex = openRe.lastIndex;
+      if (depth === 0) return nextClose + closeLen;
+      i = nextClose + closeLen;
     }
   }
   return null;

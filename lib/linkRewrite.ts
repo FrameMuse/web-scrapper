@@ -8,7 +8,7 @@ export function rewriteLinks(md: string, sourceUrl: string, urlBase: string): st
     ? sourcePath.substring(basePath.length).replace(/\/+$/, "")
     : sourcePath.replace(/\/+$/, "");
 
-  const escapedBase = basePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedBase = RegExp.escape(basePath);
   const linkRe = new RegExp(`\\]\\(${escapedBase}[^)]*\\)`, "g");
 
   return md.replace(linkRe, (match) => {
@@ -39,20 +39,14 @@ export function rewriteLinks(md: string, sourceUrl: string, urlBase: string): st
 function relativeDocPath(from: string, to: string): string {
   const fromParts = from ? from.split("/") : [];
   const toParts = to ? to.split("/") : [];
-  const fromDirs = fromParts.length > 0 ? fromParts.slice(0, -1) : [];
-  const toDirs = toParts.length > 0 ? toParts.slice(0, -1) : [];
 
   let common = 0;
-  while (
-    common < fromDirs.length &&
-    common < toDirs.length &&
-    fromDirs[common] === toDirs[common]
-  ) {
+  const maxCommon = Math.min(fromParts.length - 1, toParts.length - 1);
+  while (common < maxCommon && fromParts[common] === toParts[common]) {
     common++;
   }
 
-  const up = fromDirs.length - common;
-  const down = toDirs.slice(common).concat(toParts.slice(-1));
-  const prefix = up > 0 ? "../".repeat(up) : "";
-  return prefix + down.join("/");
+  const up = fromParts.length - 1 - common;
+  const down = toParts.slice(common).join("/");
+  return up > 0 ? "../".repeat(up) + down : down;
 }
