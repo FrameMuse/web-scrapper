@@ -16,7 +16,8 @@ export function isMediaLink(url: string): boolean {
 export function normalizeUrl(u: string): string {
   const hashIdx = u.indexOf("#");
   if (hashIdx !== -1) u = u.substring(0, hashIdx);
-  return u.replace(/\/+$/, "") + "/";
+
+  return u.replace(/\/+$/, "")
 }
 
 export function extractAllRawLinks(
@@ -32,6 +33,7 @@ export function extractAllRawLinks(
     try {
       const href = m[1] ?? m[2];
       if (!href) continue;
+
       const resolved = new URL(href, baseUrl).href;
       const clean = skipQuery ? resolved.replace(/\?.*$/, "") : resolved;
       const normalized = normalizeUrl(clean);

@@ -16,10 +16,10 @@ describe("links module", () => {
     expect(isMediaLink("https://site.com/page.php")).toBe(false);
   });
 
-  test("normalizeUrl strips hash and adds trailing slash", () => {
-    expect(normalizeUrl("https://site.com/page#anchor")).toBe("https://site.com/page/");
-    expect(normalizeUrl("https://site.com/page/")).toBe("https://site.com/page/");
-    expect(normalizeUrl("https://site.com/page")).toBe("https://site.com/page/");
+  test("normalizeUrl strips hash and trailing slashes", () => {
+    expect(normalizeUrl("https://site.com/page#anchor")).toBe("https://site.com/page");
+    expect(normalizeUrl("https://site.com/page/")).toBe("https://site.com/page");
+    expect(normalizeUrl("https://site.com/page")).toBe("https://site.com/page");
   });
 
   test("extractAllRawLinks with urlFilter", () => {
@@ -27,7 +27,7 @@ describe("links module", () => {
     const links = extractAllRawLinks(html, "https://site.com/wiki/", "https://site.com/wiki/", false);
     expect(links.length).toBe(2);
     expect(links[0].original).toBe("https://site.com/wiki/page1");
-    expect(links[0].normalized).toBe("https://site.com/wiki/page1/");
+    expect(links[0].normalized).toBe("https://site.com/wiki/page1");
   });
 
   test("extractAllRawLinks with skipQuery", () => {
@@ -37,7 +37,7 @@ describe("links module", () => {
     // original preserves the exact resolved URL including query
     expect(links[0].original).toBe("https://site.com/wiki/page?ref=nav");
     // normalized strips query for dedup
-    expect(links[0].normalized).toBe("https://site.com/wiki/page/");
+    expect(links[0].normalized).toBe("https://site.com/wiki/page");
   });
 
   test("extractAllRawLinks preserves original query string", () => {
@@ -68,7 +68,7 @@ describe("links module", () => {
     // original keeps exact query for fetchHtml navigation
     expect(links[0].original).toBe("https://site.com/wiki/page?cb=123&ref=nav");
     // normalized strips query for dedup
-    expect(links[0].normalized).toBe("https://site.com/wiki/page/");
+    expect(links[0].normalized).toBe("https://site.com/wiki/page");
   });
 
   test("extractAllRawLinks deduplicates by normalized URL", () => {

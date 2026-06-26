@@ -37,7 +37,7 @@ function isChallengePage(html: string): boolean {
 function normalizeUrl(u: string): string {
   const hashIdx = u.indexOf("#");
   if (hashIdx !== -1) u = u.substring(0, hashIdx);
-  return u.replace(/\/+$/, "") + "/";
+  return u.replace(/\/+$/, "");
 }
 
 const FIXTURE_BASE = "file://" + __dirname + "/fixtures/crawl/";
