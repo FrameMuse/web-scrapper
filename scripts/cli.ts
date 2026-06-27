@@ -213,12 +213,10 @@ async function htmlToMd(html: string): Promise<string> {
     ensureConverter()
   }
 
-  const encoder = new TextEncoder()
-  const htmlBytes = encoder.encode(html)
-  const msg = new Uint8Array(4 + htmlBytes.length)
-  new DataView(msg.buffer).setUint32(0, htmlBytes.length, true)
-  msg.set(htmlBytes, 4)
-  _converter!.stdin.write(msg)
+  const header = Buffer.alloc(4)
+  header.writeUInt32LE(Buffer.byteLength(html), 0)
+  _converter!.stdin.write(header)
+  _converter!.stdin.write(html)
 
   const hdr = await _converterReader!.readExact(4)
   const respLen = new DataView(hdr.buffer).getUint32(0, true)
@@ -602,3 +600,7 @@ try {
   await imageDownloader?.stop();
   getChromeSession()?.close();
 }
+
+
+
+process.stderr.write("<html></html>", "utf8")
