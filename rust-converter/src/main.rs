@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{self, Read, Write};
 use scraper::{Html, ElementRef, Node as ScraperNode};
 use turndown_cdp::{TurndownService, Node, HeadingStyle, CodeBlockStyle};
 
@@ -253,15 +253,20 @@ fn convert_element(elem: ElementRef, rules: &[CodeByRule]) -> Node {
     node
 }
 
+fn convert(html: &str, rules: &[CodeByRule], service: &TurndownService) -> String {
+    let doc = Html::parse_document(html);
+    let root = doc.root_element();
+    let node = convert_element(root, rules);
+    match service.turndown(&node) {
+        Ok(md) => md,
+        Err(e) => format!("Error: {}", e),
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let rules: Vec<CodeByRule> = args[1..].iter().map(|s| parse_code_by_rule(s)).collect();
-
-    let mut html = String::new();
-    std::io::stdin().read_to_string(&mut html).expect("Failed to read stdin");
-
-    let doc = Html::parse_document(&html);
-    let root = doc.root_element();
+    let once_mode = args.iter().any(|a| a == "--once");
+    let rules: Vec<CodeByRule> = args[1..].iter().filter(|a| !a.starts_with("--")).map(|s| parse_code_by_rule(s)).collect();
 
     let service = TurndownService::with_options(turndown_cdp::TurndownOptions {
         heading_style: HeadingStyle::Atx,
@@ -271,12 +276,30 @@ fn main() {
         ..Default::default()
     });
 
-    let node = convert_element(root, &rules);
-    match service.turndown(&node) {
-        Ok(md) => println!("{}", md),
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+    let mut stdin = io::stdin().lock();
+    let mut stdout = io::stdout().lock();
+
+    if once_mode {
+        let mut html = String::new();
+        stdin.read_to_string(&mut html).unwrap();
+        let md = convert(&html, &rules, &service);
+        println!("{}", md);
+    } else {
+        loop {
+            let mut len_buf = [0u8; 4];
+            if stdin.read_exact(&mut len_buf).is_err() { break; }
+            let len = u32::from_le_bytes(len_buf) as usize;
+            if len == 0 { break; }
+
+            let mut buf = vec![0u8; len];
+            if stdin.read_exact(&mut buf).is_err() { break; }
+            let html = String::from_utf8_lossy(&buf);
+
+            let md = convert(&html, &rules, &service);
+            let md_bytes = md.as_bytes();
+            stdout.write_all(&(md_bytes.len() as u32).to_le_bytes()).unwrap();
+            stdout.write_all(md_bytes).unwrap();
+            stdout.flush().unwrap();
         }
     }
 }

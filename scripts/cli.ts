@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { spawnSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
 import { extract } from "../lib/extract.ts";
@@ -30,6 +29,52 @@ import {
 const CONVERTER =
   import.meta.dirname + "/../rust-converter/target/release/html-to-md";
 
+// ---- persistent Rust converter process ----
+
+class StreamReader {
+  private buffer = new Uint8Array(0)
+  private reader: ReadableStreamDefaultReader<Uint8Array>
+
+  constructor(stream: ReadableStream<Uint8Array>) {
+    this.reader = stream.getReader()
+  }
+
+  async readExact(n: number): Promise<Uint8Array> {
+    while (this.buffer.length < n) {
+      const { done, value } = await this.reader.read()
+      if (done) throw new Error("converter stream ended")
+      const newBuf = new Uint8Array(this.buffer.length + value.length)
+      newBuf.set(this.buffer, 0)
+      newBuf.set(value, this.buffer.length)
+      this.buffer = newBuf
+    }
+    const result = this.buffer.subarray(0, n)
+    this.buffer = this.buffer.subarray(n)
+    return result
+  }
+}
+
+let _converter: import("child_process").ChildProcess | null = null
+let _converterReader: StreamReader | null = null
+
+function ensureConverter(): void {
+  if (_converter) return
+  _converter = Bun.spawn([CONVERTER, ...codeBy], {
+    stdio: ["pipe", "pipe", "pipe"],
+  })
+  _converterReader = new StreamReader(_converter.stdout)
+}
+
+function closeConverter(): void {
+  if (!_converter) return
+  try {
+    _converter.stdin.write(new Uint8Array(4))
+    _converter.stdin.end()
+  } catch {}
+  _converter = null
+  _converterReader = null
+}
+
 // ---- global map save for exit handlers ----
 let _pendingMapSave: (() => void) | null = null;
 
@@ -37,9 +82,9 @@ function registerMapSave(fn: () => void): void {
   _pendingMapSave = fn;
 }
 
-process.on("exit", () => { process.stderr.write("\n"); _pendingMapSave?.(); });
-process.on("SIGINT", () => { process.stderr.write("\n"); _pendingMapSave?.(); process.exit(130); });
-process.on("SIGTERM", () => { process.stderr.write("\n"); _pendingMapSave?.(); process.exit(143); });
+process.on("exit", () => { process.stderr.write("\n"); closeConverter(); _pendingMapSave?.(); });
+process.on("SIGINT", () => { process.stderr.write("\n"); closeConverter(); _pendingMapSave?.(); process.exit(130); });
+process.on("SIGTERM", () => { process.stderr.write("\n"); closeConverter(); _pendingMapSave?.(); process.exit(143); });
 
 // ---- arg parsing ----
 
@@ -159,18 +204,26 @@ async function isMediaMime(url: string): Promise<boolean> {
 // ---- helpers ----
 
 async function htmlToMd(html: string): Promise<string> {
-  if (!existsSync(CONVERTER)) {
-    throw new Error(
-      `Rust converter not found at ${CONVERTER}. Run: cd rust-converter && cargo build --release`
-    );
+  if (!_converter) {
+    if (!existsSync(CONVERTER)) {
+      throw new Error(
+        `Rust converter not found at ${CONVERTER}. Run: cd rust-converter && cargo build --release`
+      );
+    }
+    ensureConverter()
   }
-  const converterArgs = codeBy.length > 0 ? codeBy : [];
-  const proc = spawnSync(CONVERTER, converterArgs, { input: html, encoding: "utf-8" });
-  if (proc.error) throw new Error(`Converter failed: ${proc.error.message}`);
-  const out = (proc.stdout ?? "").trimEnd();
-  if (proc.status !== 0)
-    throw new Error(`Converter exit code ${proc.status}: ${proc.stderr}`);
-  return out;
+
+  const encoder = new TextEncoder()
+  const htmlBytes = encoder.encode(html)
+  const msg = new Uint8Array(4 + htmlBytes.length)
+  new DataView(msg.buffer).setUint32(0, htmlBytes.length, true)
+  msg.set(htmlBytes, 4)
+  _converter!.stdin.write(msg)
+
+  const hdr = await _converterReader!.readExact(4)
+  const respLen = new DataView(hdr.buffer).getUint32(0, true)
+  const body = await _converterReader!.readExact(respLen)
+  return new TextDecoder().decode(body).trimEnd()
 }
 
 function stripExcludedLinks(html: string): string {

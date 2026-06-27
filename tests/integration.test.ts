@@ -124,7 +124,7 @@ describe("frontmatter integration", () => {
 describe("code-by feature (Rust converter)", () => {
   test("code-by wraps property content in backticks", () => {
     const html = `<h3 id="annotations" data-property="true" class="property">annotations: ReadonlyArray&lt;<a href="/docs/Annotation/">Annotation</a>&gt;</h3>`;
-    const proc = spawnSync(CONVERTER, ["h3.property"], {
+    const proc = spawnSync(CONVERTER, ["--once", "h3.property"], {
       input: html,
       encoding: "utf-8",
     });
@@ -137,7 +137,7 @@ describe("code-by feature (Rust converter)", () => {
 
   test("code-by splits backticks around links", () => {
     const html = `<h3 class="property">type: <a href="/docs/Foo/">Foo</a></h3>`;
-    const proc = spawnSync(CONVERTER, ["h3.property"], {
+    const proc = spawnSync(CONVERTER, ["--once", "h3.property"], {
       input: html,
       encoding: "utf-8",
     });
@@ -151,7 +151,7 @@ describe("code-by feature (Rust converter)", () => {
 
   test("code-by no match when class absent", () => {
     const html = `<h3>plain heading</h3>`;
-    const proc = spawnSync(CONVERTER, ["h3.property"], {
+    const proc = spawnSync(CONVERTER, ["--once", "h3.property"], {
       input: html,
       encoding: "utf-8",
     });
@@ -163,7 +163,7 @@ describe("code-by feature (Rust converter)", () => {
 
   test("code-by multiple selectors", () => {
     const html = `<h3 class="sig">a: string</h3><h3 class="property">b: number</h3>`;
-    const proc = spawnSync(CONVERTER, [".sig", "h3.property"], {
+    const proc = spawnSync(CONVERTER, ["--once", ".sig", "h3.property"], {
       input: html,
       encoding: "utf-8",
     });
@@ -178,7 +178,7 @@ describe("code-by feature (Rust converter)", () => {
       `<h3 class="property">` +
       `<a href="/docs/api/foo/"><code>foo</code></a>` +
       `: <a href="/docs/api/Bar/"><code>Bar</code></a></h3>`;
-    const proc = spawnSync(CONVERTER, ["h3.property"], {
+    const proc = spawnSync(CONVERTER, ["--once", "h3.property"], {
       input: html,
       encoding: "utf-8",
     });
