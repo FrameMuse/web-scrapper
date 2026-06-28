@@ -11,21 +11,18 @@ export function rewriteLinks(md: string, sourceUrl: string, urlBase: string): st
   const escapedBase = RegExp.escape(basePath);
   const linkRe = new RegExp(`\\]\\(${escapedBase}[^)]*\\)`, "g");
 
-  return md.replace(linkRe, (match) => {
+  md = md.replace(linkRe, (match) => {
     const inner = match.slice(2, -1);
     const fragment = inner.includes("#") ? inner.substring(inner.indexOf("#")) : "";
     const noFragment = fragment ? inner.substring(0, inner.indexOf("#")) : inner;
-    // Detect and separate the title attribute ` "title"` at the end
     const titleMatch = noFragment.match(/\s+"[^"]*"$/);
     const title = titleMatch ? titleMatch[0] : "";
     const noTitle = title ? noFragment.substring(0, noFragment.length - title.length) : noFragment;
     let target = noTitle.replace(/\/+$/, "");
-    // Normalize: add trailing slash so startsWith works for root links
     const targetWithSlash = target + "/";
     const targetRel = targetWithSlash.startsWith(basePath)
       ? targetWithSlash.substring(basePath.length).replace(/\/+$/, "")
       : target;
-    // Link to root (e.g. /docs/) → index
     if (targetRel === "") {
       const rel = relativeDocPath(sourceRel, "index");
       return `](${rel}.md${title}${fragment})`;
@@ -34,6 +31,26 @@ export function rewriteLinks(md: string, sourceUrl: string, urlBase: string): st
     const rel = relativeDocPath(sourceRel, targetRel);
     return `](${rel}.md${title}${fragment})`;
   });
+
+  // Rewrite hoisted reference-style definitions: [label]: url
+  const refRe = /^\[([^\]]+)\]:\s*(\S+)(.*)/gm;
+  md = md.replace(refRe, (match, label, url, rest) => {
+    let path: string;
+    try {
+      path = new URL(url).pathname;
+    } catch {
+      path = url;
+    }
+    const pathWithSlash = path.replace(/\/+$/, "/");
+    if (!pathWithSlash.startsWith(basePath)) return match;
+    const targetRel = pathWithSlash.substring(basePath.length).replace(/\/+$/, "");
+    if (targetRel === "") {
+      return `[${label}]: ${relativeDocPath(sourceRel, "index")}.md${rest}`;
+    }
+    return `[${label}]: ${relativeDocPath(sourceRel, targetRel)}.md${rest}`;
+  });
+
+  return md;
 }
 
 function relativeDocPath(from: string, to: string): string {

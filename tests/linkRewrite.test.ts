@@ -73,3 +73,80 @@ describe("rewriteLinks", () => {
     expect(result).toContain("](page.md)");
   });
 });
+
+describe("rewriteLinks hoisted reference definitions", () => {
+  test("reference with relative URL", () => {
+    const md = "[vehicles]: /docs/Guides/Vehicles";
+    const result = rewriteLinks(md, "https://site.com/docs/Page", BASE);
+    expect(result).toBe("[vehicles]: Guides/Vehicles.md");
+  });
+
+  test("reference with absolute URL", () => {
+    const md = "[ref0]: https://site.com/docs/Tanks";
+    const result = rewriteLinks(md, "https://site.com/docs/Page", BASE);
+    expect(result).toBe("[ref0]: Tanks.md");
+  });
+
+  test("reference with nested path (source deeper)", () => {
+    const md = "[ref0]: /docs/Tanks";
+    const result = rewriteLinks(md, "https://site.com/docs/Guides/Page", BASE);
+    expect(result).toBe("[ref0]: ../Tanks.md");
+  });
+
+  test("reference same directory", () => {
+    const md = "[ref0]: /docs/Guides/Vehicles";
+    const result = rewriteLinks(md, "https://site.com/docs/Guides/Page", BASE);
+    expect(result).toBe("[ref0]: Vehicles.md");
+  });
+
+  test("reference with title preserved", () => {
+    const md = '[ref0]: /docs/Tanks "Heavy armor"';
+    const result = rewriteLinks(md, "https://site.com/docs/Page", BASE);
+    expect(result).toBe('[ref0]: Tanks.md "Heavy armor"');
+  });
+
+  test("reference root link becomes index", () => {
+    const md = "[ref0]: /docs/";
+    const result = rewriteLinks(md, "https://site.com/docs/Page", BASE);
+    expect(result).toBe("[ref0]: index.md");
+  });
+
+  test("reference external URL not rewritten", () => {
+    const md = "[ref0]: https://other.com/blog";
+    const result = rewriteLinks(md, "https://site.com/docs/Page", BASE);
+    expect(result).toBe(md);
+  });
+
+  test("reference outside base not rewritten", () => {
+    const md = "[ref0]: /other/Tanks";
+    const result = rewriteLinks(md, "https://site.com/docs/Page", BASE);
+    expect(result).toBe(md);
+  });
+
+  test("mixed — some rewritten, some not", () => {
+    const md = "[ref0]: /docs/A\n[ref1]: https://ext.com/B\n[ref2]: /docs/Guides/C\n[ref3]: /other/D";
+    const result = rewriteLinks(md, "https://site.com/docs/Page", BASE);
+    const lines = result.split("\n");
+    expect(lines[0]).toBe("[ref0]: A.md");
+    expect(lines[1]).toBe("[ref1]: https://ext.com/B");
+    expect(lines[2]).toBe("[ref2]: Guides/C.md");
+    expect(lines[3]).toBe("[ref3]: /other/D");
+  });
+
+  test("multiple references all rewritten", () => {
+    const md = "[ref0]: /docs/A\n[ref1]: /docs/B\n[ref2]: /docs/Guides/C";
+    const result = rewriteLinks(md, "https://site.com/docs/Page", BASE);
+    expect(result).toBe("[ref0]: A.md\n[ref1]: B.md\n[ref2]: Guides/C.md");
+  });
+
+  test("empty input unchanged", () => {
+    expect(rewriteLinks("", "https://site.com/docs/Page", BASE)).toBe("");
+  });
+
+  test("no ref definitions — only inline links", () => {
+    const md = "See [Tanks](/docs/Tanks) and [Infantry](/docs/Infantry)";
+    const result = rewriteLinks(md, "https://site.com/docs/Page", BASE);
+    expect(result).toContain("](Tanks.md)");
+    expect(result).toContain("](Infantry.md)");
+  });
+});
