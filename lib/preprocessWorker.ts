@@ -60,6 +60,23 @@ self.onmessage = async (e: MessageEvent) => {
   const images: ImageInfo[] = [];
   const ops: ReplaceOp[] = [];
 
+  // Phase 0: collect SVG <symbol> definitions for <use> resolution
+  const symbols = new Map<string, string>();
+  const symRe = /<symbol\b[^>]*?\bid="([^"]+)"[^>]*>([\s\S]*?)<\/symbol>/gi;
+  let symMatch: RegExpExecArray | null;
+  while ((symMatch = symRe.exec(html)) !== null) {
+    symbols.set(symMatch[1], symMatch[2]);
+  }
+
+  function resolveUseTags(svg: string, depth = 0): string {
+    if (depth > 5) return svg;
+    return svg.replace(/<use\b[^>]*?\s(?:xlink:)?href="#([^"]+)"[^>]*?\/?\s*>/gi, (m, ref) => {
+      const content = symbols.get(ref);
+      if (!content) return m;
+      return resolveUseTags(content, depth + 1);
+    });
+  }
+
   // Phase 1: <img> and <source> tags
   const tagRe = /<(img|source)\b([^>]*?)>/gi;
   let m: RegExpExecArray | null;
@@ -144,16 +161,21 @@ self.onmessage = async (e: MessageEvent) => {
     ops.push({ index: m.index, length: match.length, replacement, promise: writePromise });
   }
 
-  // Phase 2: inline <svg>
+  // Phase 2: inline <svg> — resolve <use> references and save as files
   const svgRe = /<svg[\s\S]*?<\/svg>/gi;
   let sm: RegExpExecArray | null;
   while ((sm = svgRe.exec(html)) !== null) {
     const match = sm[0];
-    const hash = shortHash(match);
-    const svgContent = '<?xml version="1.0" encoding="UTF-8"?>\n' + match;
+    const resolved = match.includes("<use") ? resolveUseTags(match) : match;
+    let enriched = resolved;
+    if (!enriched.includes('xmlns=')) {
+      enriched = enriched.replace(/^<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+    enriched = `<?xml version="1.0" encoding="UTF-8"?>\n<!-- found-at-url: ${pageUrl} -->\n` + enriched;
+    const hash = shortHash(enriched);
     const fullPath = join(outputDir, "images", "_inline", `${hash}.svg`);
     const writePromise = mkdir(dirname(fullPath), { recursive: true })
-      .then(() => access(fullPath).catch(() => writeFile(fullPath, svgContent)));
+      .then(() => access(fullPath).catch(() => writeFile(fullPath, enriched)));
     const replacement = `<img src="_inline/${hash}.svg" alt="">`;
     ops.push({ index: sm.index, length: match.length, replacement, promise: writePromise });
   }

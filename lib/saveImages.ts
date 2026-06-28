@@ -117,15 +117,21 @@ export class ImageDownloader {
   async stop(): Promise<void> {
     if (!this.worker) return;
     return new Promise((resolve) => {
-      const handler = (e: MessageEvent) => {
-        if (e.data.type === "done") {
-          this.worker!.removeEventListener("message", handler);
+      const onMsg = (e: MessageEvent) => {
+        const data = e.data;
+        if (data.type === "progress") {
+          this.enqueued = data.enqueued;
+          this.completed = data.completed;
+          process.stderr.write(`\r  Finishing images: ${this.completed}/${this.enqueued}`);
+        } else if (data.type === "done") {
+          process.stderr.write("\n");
+          this.worker!.removeEventListener("message", onMsg);
           this.worker!.terminate();
           this.worker = null;
           resolve();
         }
       };
-      this.worker!.addEventListener("message", handler);
+      this.worker!.addEventListener("message", onMsg);
       this.worker!.postMessage({ type: "stop" });
     });
   }

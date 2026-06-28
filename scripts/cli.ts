@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { join } from "path";
-import { HtmlToMd } from "html2md-js";
+import { HtmlToMd, HOIST_IMAGES, HOIST_LINKS } from "html2md-js";
 import { DOMParser } from "linkedom";
 import { extract } from "../lib/extract.ts";
 import { fetchHtml, getChromeSession, setChromeEnabled } from "../lib/fetchHtml.ts";
@@ -61,9 +61,9 @@ function parseArgs() {
       }
 
       // Repeatable flags
-      if (key === "selector" || key === "code-by" || key === "exclude") {
+      if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only") {
         const map: Record<string, string> = { "code-by": "codeBy", exclude: "exclude" };
-        const k = map[key] || "selector";
+        const k = map[key] ?? key;
         if (!flags[k]) flags[k] = [];
         (flags[k] as string[]).push(val);
       } else if (key === "concurrent" || key === "interval" || key === "offset" || key === "limit") {
@@ -87,8 +87,14 @@ function expandTilde(s: string): string {
 
 const selector = (flags["selector"] as string[]) ?? [];
 const codeBy = (flags["codeBy"] as string[]) ?? [];
-const converter = new HtmlToMd({ codeBy });
+const hoistImages = flags["hoist-images"] === "true";
+const hoistLinks = flags["hoist-links"] === "true";
+const converter = new HtmlToMd({
+  codeBy,
+  flags: (hoistImages ? HOIST_IMAGES : 0) | (hoistLinks ? HOIST_LINKS : 0),
+});
 const exclude = ((flags["exclude"] as string[]) ?? []).map(p => new RegExp(p))
+const visitOnly = ((flags["visit-only"] as string[]) ?? []).map(p => new RegExp(p))
 const matchRe = flags["match"] as string | undefined;
 const urlBase = flags["url-base"] as string | undefined;
 const urlFilter = (flags["url-filter"] as string) ?? urlBase;
@@ -106,6 +112,7 @@ const buildMap = flags["build-map"] === "true";
 const buildMapPath = buildMap ? join(outputDir, "sitemap.sqlite.db") : undefined;
 const skipQuery = flags["skip-query"] === "true";
 const saveImages = flags["save-images"] === "true";
+const noJs = flags["no-js"] === "true";
 const singleUrl = positional[0];
 const resolvedBaseUrl = urlBase || urlFilter || (singleUrl ? singleUrl : "");
 
@@ -118,7 +125,7 @@ const resolvedConcurrent = concurrent;
 initLogger(outputDir);
 log("INFO", `outputDir=${outputDir} resolvedBaseUrl=${resolvedBaseUrl}`);
 
-if (useChrome) setChromeEnabled(true, concurrent);
+if (useChrome) setChromeEnabled(true, concurrent, noJs);
 
 const imageDownloader = saveImages ? new ImageDownloader(outputDir, resolvedBaseUrl) : null;
 if (imageDownloader) {
@@ -135,7 +142,12 @@ if (hasFlags && !urlBase && !urlFilter) {
 // ---- link filters ----
 
 function isExcluded(url: string): boolean {
+  if (visitOnly.some(p => p.test(url))) return false;
   return exclude.some(p => p.test(url));
+}
+
+function isVisitOnly(url: string): boolean {
+  return visitOnly.some(p => p.test(url));
 }
 
 const mimeCache = new Map<string, boolean>();
@@ -161,15 +173,38 @@ async function htmlToMd(html: string): Promise<string> {
   return converter.convert(doc.documentElement).trimEnd();
 }
 
-function stripExcludedLinks(html: string): string {
+function resolveAbsolute(href: string, base: string): string {
+  try { return new URL(href, base).href; } catch { return href; }
+}
+
+function stripFilteredLinks(html: string, baseUrl: string): string {
   return html.replace(
-    /<a\b[^>]*href=(?:"([^"]*)"|'([^']*)')[^>]*>[\s\S]*?<\/a>\s*/gi,
-    (match, dq, sq) => isExcluded(dq ?? sq) ? '' : match,
+    /<a\b[^>]*href=(?:"([^"]*)"|'([^']*)')[^>]*>([\s\S]*?)<\/a>\s*/gi,
+    (_, dq, sq, text) => {
+      const resolved = resolveAbsolute(dq ?? sq, baseUrl);
+      if (isExcluded(resolved)) return '';
+      if (isVisitOnly(resolved)) return text;
+      if (urlFilter && !normalizeUrl(resolved).startsWith(normalizeUrl(urlFilter))) return '';
+      return _;
+    },
   );
 }
 
 async function scrapeOne(url: string): Promise<void> {
-  const { html } = await fetchHtml(url);
+  const { html, finalUrl } = await fetchHtml(url);
+  if (finalUrl && finalUrl !== url) {
+    if (isExcluded(finalUrl)) {
+      return;
+    }
+    if (urlFilter && !normalizeUrl(finalUrl).startsWith(normalizeUrl(urlFilter))) {
+      return;
+    }
+  }
+  if (isVisitOnly(url)) {
+    log("INFO", `Visit-only: ${url}`);
+    return;
+  }
+
   const extracted = extract(html, selector, matchRe);
   if (!extracted) {
     console.error(`  No content found at ${url}`);
@@ -185,7 +220,7 @@ async function scrapeOne(url: string): Promise<void> {
   }
 
   // Strip excluded links from HTML before conversion
-  contentHtml = stripExcludedLinks(contentHtml);
+  contentHtml = stripFilteredLinks(contentHtml, url);
 
   let mdBody = await htmlToMd(contentHtml);
   // Strip Docusaurus-style hash-link anchors
@@ -422,7 +457,17 @@ async function crawlLinks(): Promise<void> {
     if (processed.has(normUrl)) return;
     processed.add(normUrl);
 
-    const { html, contentType } = await fetchHtml(url);
+    const { html, contentType, finalUrl } = await fetchHtml(url);
+    if (finalUrl && finalUrl !== url) {
+      if (isExcluded(finalUrl)) {
+        progress();
+        return;
+      }
+      if (urlFilter && !normalizeUrl(finalUrl).startsWith(normalizeUrl(urlFilter))) {
+        progress();
+        return;
+      }
+    }
     if (db) db.markVisited(normUrl, contentType);
 
     const discovered = await extractLinks(html, normUrl);
@@ -437,6 +482,12 @@ async function crawlLinks(): Promise<void> {
           queue.push({ original: linkUrl, normalized });
         }
       }
+    }
+
+    if (isVisitOnly(url) || isVisitOnly(normUrl)) {
+      log("INFO", `Visit-only: ${url}`);
+      progress();
+      return;
     }
 
     const extracted = extract(html, selector, matchRe);
@@ -457,7 +508,7 @@ async function crawlLinks(): Promise<void> {
     }
     if (db && pageImages.length > 0) db.appendImage(pageImages);
 
-    contentHtml = stripExcludedLinks(contentHtml);
+    contentHtml = stripFilteredLinks(contentHtml, url);
 
     let mdBody = await htmlToMd(contentHtml);
     mdBody = mdBody.replace(/\s*\[​\]\(#[^)]+\)/g, "");

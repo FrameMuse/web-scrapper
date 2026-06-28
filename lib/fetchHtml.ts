@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync } from "fs";
+import { playAlertSound } from "./alert";
 
 let chromeSession: ChromeSession | null = null;
 
@@ -14,10 +15,10 @@ process.on("SIGTERM", () => {
   process.exit(143);
 });
 
-export function setChromeEnabled(v: boolean, nTabs = 1): void {
+export function setChromeEnabled(v: boolean, nTabs = 1, noJs = false): void {
   if (v && !chromeSession) {
     chromeSession = new ChromeSession();
-    chromeSession.start(nTabs).catch((e) => {
+    chromeSession.start(nTabs, noJs).catch((e) => {
       console.error("  Chrome session failed:", e.message);
     });
   } else if (!v && chromeSession) {
@@ -25,10 +26,6 @@ export function setChromeEnabled(v: boolean, nTabs = 1): void {
     chromeSession = null;
   }
 }
-
-let blockedTypes = new Set([
-  "Font", "Media", "WebSocket", "Manifest", "Stylesheet", "Image",
-]);
 
 export function setSaveImages(v: boolean): void {}
 
@@ -121,48 +118,32 @@ class CdpConnection {
 
 // ---- Chrome tab = one page with its own CDP connection ----
 
-const adPatterns = [
-  /doubleclick\.net/i, /googlesyndication\.com/i,
-  /google-analytics\.com/i, /googletagmanager\.com/i,
-  /facebook\.com\/tr/i, /quantserve\.com/i,
-  /scorecardresearch\.com/i, /amazon-adsystem\.com/i,
-  /criteo\.com/i, /criteo\.net/i, /taboola\.com/i,
-  /outbrain\.com/i, /casalemedia\.com/i,
-];
-
 class ChromeTab {
   cdp: CdpConnection;
   ready: boolean = false;
+  noJs: boolean;
+  targetId: string;
+  focusMe: (() => void) | null = null;
 
-  constructor(cdp: CdpConnection) {
+  constructor(cdp: CdpConnection, noJs: boolean, targetId: string) {
     this.cdp = cdp;
-    // Register request blocker once per tab lifetime
-    this.cdp.on("Fetch.requestPaused", (msg: any) => this.handleRequest(msg));
+    this.noJs = noJs;
+    this.targetId = targetId;
   }
 
-  private handleRequest(msg: any): void {
-    const { requestId, request, resourceType } = msg.params;
-    const type = resourceType || "";
-    const reqUrl = request?.url || "";
-    if (
-      blockedTypes.has(type) ||
-      adPatterns.some((p) => p.test(reqUrl))
-    ) {
-      this.cdp.send("Fetch.failRequest", {
-        requestId, errorReason: "BlockedByClient",
-      });
-    } else {
-      this.cdp.send("Fetch.continueRequest", { requestId });
-    }
-  }
-
-  async navigate(url: string): Promise<{ html: string; contentType: string }> {
+  async navigate(url: string): Promise<{ html: string; contentType: string; finalUrl: string }> {
     await this.cdp.call("Page.enable");
     await this.cdp.call("Network.enable");
 
-    // Enable request interception (idempotent per session)
-    await this.cdp.call("Fetch.enable", {
-      patterns: [{ urlPattern: "*", requestStage: "Request" }],
+    // Block non-content resource types natively — no CDP round-trips
+    await this.cdp.call("Network.setBlockedURLs", {
+      urls: [
+        "*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp", "*.svg", "*.ico", "*.bmp",
+        "*.css",
+        "*.woff", "*.woff2", "*.ttf", "*.eot", "*.otf",
+        "*.mp4", "*.webm", "*.avi", "*.mov", "*.mkv",
+        "*.mp3", "*.wav", "*.ogg", "*.flac",
+      ],
     });
 
     // Capture content-type of the main-document response
@@ -183,7 +164,7 @@ class ChromeTab {
     });
 
     if (/^image\//.test(mimeType)) {
-      return { html: "", contentType: mimeType };
+      return { html: "", contentType: mimeType, finalUrl: url };
     }
 
     // Wait for DOMContentLoaded (HTML fully parsed, DOM ready)
@@ -207,17 +188,20 @@ class ChromeTab {
       const originalHost = new URL(url).hostname;
       const currentHost = new URL(currentUrl).hostname;
       if (originalHost !== currentHost) {
-        return { html: "", contentType: mimeType };
+        return { html: "", contentType: mimeType, finalUrl: currentUrl };
       }
     } catch {}
 
     if (isChallengePage(html)) {
+      if (this.noJs) {
+        return await this.handleCaptchaWithJs();
+      }
       console.error("  Captcha detected, waiting for solution...");
       const realHtml = await this.waitForContent();
-      return { html: realHtml ?? html, contentType: mimeType };
+      return { html: realHtml ?? html, contentType: mimeType, finalUrl: currentUrl };
     }
 
-    return { html, contentType: mimeType };
+    return { html, contentType: mimeType, finalUrl: currentUrl };
   }
 
   private async waitForContent(timeoutMs = 120000): Promise<string | null> {
@@ -230,6 +214,32 @@ class ChromeTab {
     await Bun.sleep(100);
     }
     return null;
+  }
+
+  private async handleCaptchaWithJs(): Promise<{ html: string; contentType: string; finalUrl: string }> {
+    console.error("\x07\x07\x07  CAPTCHA detected — solving in Chrome window");
+    this.focusMe?.();
+    await playAlertSound();
+
+    await this.cdp.call("Emulation.setScriptExecutionDisabled", { value: false });
+    await this.cdp.call("Page.reload");
+
+    const start = Date.now();
+    const timeoutMs = 300000;
+    while (Date.now() - start < timeoutMs) {
+      const title = await this.cdp.evaluate("document.title");
+      if (title && !/just a moment/i.test(title)) {
+        const html = await this.cdp.evaluate("document.documentElement.outerHTML");
+        this.cdp.send("Page.stopLoading");
+        await this.cdp.call("Emulation.setScriptExecutionDisabled", { value: true });
+        const finalUrl = await this.cdp.evaluate("document.location.href");
+        return { html, contentType: "text/html", finalUrl };
+      }
+      await Bun.sleep(500);
+    }
+
+    await this.cdp.call("Emulation.setScriptExecutionDisabled", { value: true });
+    return { html: "", contentType: "text/html", finalUrl: "" };
   }
 
   close(): void {
@@ -252,7 +262,7 @@ export class ChromeSession {
     this._ready = new Promise((r) => { this.readyResolve = r; });
   }
 
-  async start(nTabs: number): Promise<void> {
+  async start(nTabs: number, noJs = false): Promise<void> {
     if (!existsSync(CHROME_PROFILE)) mkdirSync(CHROME_PROFILE, { recursive: true });
 
     // Launch headed Chrome with blocker extension
@@ -300,11 +310,21 @@ export class ChromeSession {
       if (page?.webSocketDebuggerUrl) {
         const cdp = new CdpConnection();
         await cdp.connect(page.webSocketDebuggerUrl);
-        const tab = new ChromeTab(cdp);
+        const tab = new ChromeTab(cdp, !!noJs, tabId);
+        tab.focusMe = () => {
+          this.browserCdp?.send("Target.activateTarget", { targetId: tabId });
+        };
         tab.ready = true;
         this.tabs.push(tab);
         this.free.push(tab);
       }
+    }
+
+    if (noJs) {
+      await Promise.all(this.tabs.map(tab =>
+        tab.cdp.call("Emulation.setScriptExecutionDisabled", { value: true })
+      ));
+      console.error(`  JavaScript disabled on ${this.tabs.length} tabs.`);
     }
 
     console.error(`  ${this.tabs.length} tabs ready.`);
@@ -347,7 +367,7 @@ export class ChromeSession {
     return [];
   }
 
-  async fetchHtml(url: string): Promise<{ html: string; contentType: string }> {
+  async fetchHtml(url: string): Promise<{ html: string; contentType: string; finalUrl: string }> {
     await this.ready;
     const tab = await this.acquireTab();
     try {
@@ -392,7 +412,7 @@ export class ChromeSession {
 
 // ---- fetchHtml: HTTP first, then Chrome session ----
 
-export async function fetchHtml(url: string): Promise<{ html: string; contentType: string }> {
+export async function fetchHtml(url: string): Promise<{ html: string; contentType: string; finalUrl: string }> {
   if (chromeSession) {
     return chromeSession.fetchHtml(url);
   }
@@ -403,7 +423,7 @@ export async function fetchHtml(url: string): Promise<{ html: string; contentTyp
   }
 }
 
-async function fetchWithHttp(url: string): Promise<{ html: string; contentType: string }> {
+async function fetchWithHttp(url: string): Promise<{ html: string; contentType: string; finalUrl: string }> {
   const res = await fetch(url, {
     headers: {
       "User-Agent": USER_AGENT,
@@ -415,5 +435,6 @@ async function fetchWithHttp(url: string): Promise<{ html: string; contentType: 
   return {
     html: await res.text(),
     contentType: res.headers.get("content-type") || "",
+    finalUrl: url,
   };
 }
