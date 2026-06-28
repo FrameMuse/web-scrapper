@@ -19,7 +19,7 @@ function parseArgs(args: string[]) {
         val = "true";
       }
 
-      if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include") {
+      if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include" || key === "block") {
         const map: Record<string, string> = { "code-by": "codeBy", exclude: "exclude" };
         const k = map[key] ?? key;
         if (!flags[k]) flags[k] = [];
@@ -465,7 +465,7 @@ describe("parseArgs — new flags", () => {
           key = a.substring(2);
           val = "true";
         }
-        if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include") {
+        if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include" || key === "block") {
           const map: Record<string, string> = { "code-by": "codeBy", exclude: "exclude" };
           const k = map[key] ?? key;
           if (!flags[k]) flags[k] = [];
@@ -521,8 +521,10 @@ describe("parseArgs — new flags", () => {
 describe("isExcluded with visit-only override", () => {
   const exclude = [/\/wiki\/(File|User|Help):/];
   const visitOnly = [/\/wiki\/Special:(AllPages|AncientPages)/];
+  const block: RegExp[] = [];
 
   function isExcluded(url: string): boolean {
+    if (block.some((p) => p.test(url))) return true;
     if (visitOnly.some((p) => p.test(url))) return false;
     return exclude.some((p) => p.test(url));
   }
@@ -556,8 +558,10 @@ describe("isExcluded with visit-only override", () => {
 describe("isVisitOnly", () => {
   const visitOnly = [/\/wiki\/Special:(AllPages|AncientPages)/];
   const include = [/\/wiki\/Special:AllPages/];
+  const block: RegExp[] = [];
 
   function isVisitOnly(url: string): boolean {
+    if (block.some((p) => p.test(url))) return false;
     if (include.some((p) => p.test(url))) return false;
     return visitOnly.some((p) => p.test(url));
   }
@@ -615,15 +619,18 @@ describe("stripFilteredLinks", () => {
   const exclude = [/\/wiki\/(File|User|Help|Category):/];
   const visitOnly = [/\/wiki\/Special:(AllPages|AncientPages)/];
   const include: RegExp[] = [];
+  const block: RegExp[] = [];
   const urlFilter = "https://wiki.com/wiki/";
 
   function isExcluded(url: string): boolean {
+    if (block.some((p) => p.test(url))) return true;
     if (visitOnly.some((p) => p.test(url))) return false;
     if (include.some((p) => p.test(url))) return false;
     return exclude.some((p) => p.test(url));
   }
 
   function isVisitOnly(url: string): boolean {
+    if (block.some((p) => p.test(url))) return false;
     if (include.some((p) => p.test(url))) return false;
     return visitOnly.some((p) => p.test(url));
   }
@@ -724,8 +731,10 @@ describe("isExcluded with --include", () => {
   const include = [/\/wiki\/(Company_of_Heroes|Tanks|Airborne)/];
   const exclude = [/\/wiki\/(File|User):/];
   const visitOnly = [/\/wiki\/Special:AllPages/];
+  const block: RegExp[] = [];
 
   function isExcluded(url: string): boolean {
+    if (block.some((p) => p.test(url))) return true;
     if (visitOnly.some((p) => p.test(url))) return false;
     if (include.some((p) => p.test(url))) return false;
     return exclude.some((p) => p.test(url));
@@ -781,7 +790,7 @@ describe("parseArgs — --include", () => {
           key = a.substring(2);
           val = "true";
         }
-        if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include") {
+        if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include" || key === "block") {
           const map: Record<string, string> = { "code-by": "codeBy", exclude: "exclude" };
           const k = map[key] ?? key;
           if (!flags[k]) flags[k] = [];
@@ -815,5 +824,106 @@ describe("parseArgs — --include", () => {
     expect(r.flags["include"]).toEqual(["/wiki/"]);
     expect(r.flags["exclude"]).toEqual(["/wiki/File:"]);
     expect(r.flags["visit-only"]).toEqual(["/wiki/Special:AllPages"]);
+  });
+});
+
+describe("parseArgs — --block", () => {
+  function parseArgs(args: string[]) {
+    const flags: Record<string, string | string[] | number | boolean> = {};
+    const positional: string[] = [];
+    let hasFlags = false;
+    for (const a of args) {
+      if (a.startsWith("--")) {
+        hasFlags = true;
+        const eq = a.indexOf("=");
+        let key: string, val: string;
+        if (eq !== -1) {
+          key = a.substring(2, eq);
+          val = a.substring(eq + 1);
+        } else {
+          key = a.substring(2);
+          val = "true";
+        }
+        if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include" || key === "block") {
+          const map: Record<string, string> = { "code-by": "codeBy", exclude: "exclude" };
+          const k = map[key] ?? key;
+          if (!flags[k]) flags[k] = [];
+          (flags[k] as string[]).push(val);
+        } else if (key === "concurrent" || key === "interval" || key === "offset" || key === "limit") {
+          flags[key] = parseInt(val, 10);
+        } else {
+          flags[key] = val;
+        }
+      } else {
+        positional.push(a);
+      }
+    }
+    return { flags, positional, hasFlags };
+  }
+
+  test("block is repeatable", () => {
+    const r = parseArgs(["--block=\\?action=.+", "--block=\\?oldid="]);
+    expect(r.flags["block"]).toEqual(["\\?action=.+", "\\?oldid="]);
+  });
+});
+
+describe("isExcluded with --block", () => {
+  const block = [/\\?action=.+/];
+  const exclude = [/\/wiki\/(File|User):/];
+  const include = [/\/wiki\/Category:/];
+  const visitOnly: RegExp[] = [];
+
+  function isExcluded(url: string): boolean {
+    if (block.some((p) => p.test(url))) return true;
+    if (visitOnly.some((p) => p.test(url))) return false;
+    if (include.some((p) => p.test(url))) return false;
+    return exclude.some((p) => p.test(url));
+  }
+
+  test("block overrides include", () => {
+    expect(isExcluded("/wiki/Category:Vehicles?action=edit")).toBe(true);
+  });
+
+  test("page without action param is not blocked", () => {
+    expect(isExcluded("/wiki/Category:Vehicles")).toBe(false);
+  });
+
+  test("block hits even on non-excluded pages", () => {
+    expect(isExcluded("/wiki/Tanks?action=history")).toBe(true);
+  });
+
+  test("block respected before all other checks", () => {
+    expect(isExcluded("/wiki/Category:Units?action=edit")).toBe(true);
+  });
+
+  test("empty block list has no effect", () => {
+    const fn = (url: string) => {
+      if ([].some(() => false)) return true;
+      if ([].some(() => false)) return false;
+      if ([].some(() => false)) return false;
+      return [/\/wiki\/File:/].some((p) => p.test(url));
+    };
+    expect(fn("/wiki/File:Image.png")).toBe(true);
+    expect(fn("/wiki/Tanks")).toBe(false);
+  });
+});
+
+describe("isVisitOnly with --block", () => {
+  const visitOnly = [/\/wiki\/Special:(AllPages)/];
+  const include: RegExp[] = [];
+  const block = [/\\?action=.+/];
+
+  function isVisitOnly(url: string): boolean {
+    if (block.some((p) => p.test(url))) return false;
+    if (include.some((p) => p.test(url))) return false;
+    return visitOnly.some((p) => p.test(url));
+  }
+
+  test("block overrides visit-only", () => {
+    expect(isVisitOnly("/wiki/Special:AllPages?action=edit")).toBe(false);
+  });
+
+  test("visit-only still works for non-blocked URLs", () => {
+    expect(isVisitOnly("/wiki/Special:AllPages")).toBe(true);
   });
 });

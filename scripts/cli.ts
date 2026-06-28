@@ -61,7 +61,7 @@ function parseArgs() {
       }
 
       // Repeatable flags
-      if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include") {
+      if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include" || key === "block") {
         const map: Record<string, string> = { "code-by": "codeBy", exclude: "exclude" };
         const k = map[key] ?? key;
         if (!flags[k]) flags[k] = [];
@@ -96,6 +96,7 @@ const converter = new HtmlToMd({
 const exclude = ((flags["exclude"] as string[]) ?? []).map(p => new RegExp(p))
 const visitOnly = ((flags["visit-only"] as string[]) ?? []).map(p => new RegExp(p))
 const include = ((flags["include"] as string[]) ?? []).map(p => new RegExp(p))
+const block = ((flags["block"] as string[]) ?? []).map(p => new RegExp(p))
 const matchRe = flags["match"] as string | undefined;
 const urlBase = flags["url-base"] as string | undefined;
 const urlFilter = (flags["url-filter"] as string) ?? urlBase;
@@ -143,12 +144,14 @@ if (hasFlags && !urlBase && !urlFilter) {
 // ---- link filters ----
 
 function isExcluded(url: string): boolean {
+  if (block.some(p => p.test(url))) return true;
   if (visitOnly.some(p => p.test(url))) return false;
   if (include.some(p => p.test(url))) return false;
   return exclude.some(p => p.test(url));
 }
 
 function isVisitOnly(url: string): boolean {
+  if (block.some(p => p.test(url))) return false;
   if (include.some(p => p.test(url))) return false;
   return visitOnly.some(p => p.test(url));
 }
