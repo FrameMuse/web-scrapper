@@ -83,11 +83,15 @@ export class ImageDownloader {
     this._db = db ?? null;
   }
 
-  setDb(db: LinkDb): void { this._db = db; }
+  setDb(db: LinkDb): void {
+    this._db = db;
+    if (this._db) {
+      for (const u of this._db.imageSeenUrls()) this._seen.add(u);
+    }
+  }
 
   enqueued = 0;
   completed = 0;
-  skipped = 0;
   failed = 0;
 
   enqueue(url: string): void {
@@ -99,6 +103,10 @@ export class ImageDownloader {
 
   start(): void {
     const url = new URL("./imageWorker.ts", import.meta.url).href;
+    // Seed seen set from previously-downloaded images
+    if (this._db) {
+      for (const u of this._db.imageSeenUrls()) this._seen.add(u);
+    }
     this.worker = new Worker(url);
     this.worker.postMessage({ type: "init", outputDir: this.outputDir, referer: this.referer });
     this.worker.onmessage = (e: MessageEvent) => {
@@ -106,7 +114,6 @@ export class ImageDownloader {
       if (data.type === "progress") {
         this.enqueued = data.enqueued;
         this.completed = data.completed;
-        this.skipped = data.skipped;
         this.failed = data.failed;
       } else if (data.type === "error") {
         log("ERROR", data.message);
@@ -126,10 +133,9 @@ export class ImageDownloader {
         if (data.type === "progress") {
           this.enqueued = data.enqueued;
           this.completed = data.completed;
-          this.skipped = data.skipped;
           this.failed = data.failed;
           let line = `\r  Finishing images: ${this.completed}/${this.enqueued}`;
-          line += ` (+${this.skipped}, -${this.failed})`;
+          if (this.failed > 0) line += ` (-${this.failed})`;
           process.stderr.write(line);
         } else if (data.type === "done") {
           process.stderr.write("\n");

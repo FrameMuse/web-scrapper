@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, existsSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { dirname } from "path";
 import sizeOf from "image-size";
 import {
@@ -16,18 +16,11 @@ let stopped = false;
 let active = 0;
 let enqueued = 0;
 let completed = 0;
-let skipped = 0;
 let failed = 0;
 
 async function downloadInternal(url: string): Promise<void> {
   let localPath = imageLocalPath(outputDir, url);
   const dir = dirname(localPath);
-
-  if (existsSync(localPath)) {
-    skipped++;
-    self.postMessage({ type: "progress", enqueued, completed, skipped, failed });
-    return;
-  }
 
   const start = performance.now();
 
@@ -82,7 +75,7 @@ async function downloadInternal(url: string): Promise<void> {
     writeFileSync(localPath, buf);
     const elapsed = Math.round(performance.now() - start);
     completed++;
-    self.postMessage({ type: "progress", enqueued, completed, skipped, failed });
+    self.postMessage({ type: "progress", enqueued, completed, failed });
     self.postMessage({ type: "timing", url, ms: elapsed });
     self.postMessage({
       type: "image-saved",
@@ -132,7 +125,7 @@ self.onmessage = (e: MessageEvent) => {
       seen.add(data.url);
       queue.push(data.url);
       enqueued++;
-      self.postMessage({ type: "progress", enqueued, completed, skipped, failed });
+      self.postMessage({ type: "progress", enqueued, completed, failed });
       break;
     case "stop":
       stopped = true;

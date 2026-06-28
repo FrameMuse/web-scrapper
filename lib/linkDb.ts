@@ -154,6 +154,11 @@ export class LinkDb {
     return row.c;
   }
 
+  imageSeenUrls(): string[] {
+    const rows = this.db.query("SELECT url FROM images WHERE downloaded=1").all() as { url: string }[];
+    return rows.map((r) => r.url);
+  }
+
   getLogs(runId?: string, level?: string, limit = 100): { run_id: string; level: string; message: string; created_at: string }[] {
     let sql = "SELECT run_id, level, message, created_at FROM logs WHERE 1=1";
     const params: any[] = [];

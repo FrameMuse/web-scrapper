@@ -156,24 +156,19 @@ describe("imageWorker", () => {
     worker.terminate();
   });
 
-  test("enqueue + already exists still increments completed", async () => {
+  test("enqueue + already on disk works without exists check", async () => {
     const worker = createWorker();
     const url = `${BASE}/success.bmp`;
 
-    // Pre-create the file so it already exists
-    const imgPath = join(TEST_OUTPUT, "images", "localhost", "success.bmp");
-    mkdirSync(join(TEST_OUTPUT, "images", "localhost"), { recursive: true });
-    writeFileSync(imgPath, "placeholder");
-
+    // Enqueue — no DB-backed _seen set here, Worker handles it via fetch
     const progress1 = waitForMessage(worker, "progress", 5000);
     worker.postMessage({ type: "enqueue", url });
     const p1 = await progress1;
     expect(p1.enqueued).toBeGreaterThanOrEqual(1);
 
-    // existsSync path increments skipped
+    // Image downloads normally (we removed the Worker-level existsSync check)
     const p2 = await waitForMessage(worker, "progress", 5000);
-    expect(p2.skipped).toBeGreaterThanOrEqual(1);
-    expect(p2.completed).toBe(0);
+    expect(p2.completed).toBeGreaterThanOrEqual(1);
 
     worker.postMessage({ type: "stop" });
     await waitForMessage(worker, "done", 2000);
@@ -292,8 +287,7 @@ describe("imageWorker", () => {
 
     const last = await waitForCompleted(worker, N, 10000);
     expect(last.enqueued).toBe(N);
-    expect(last.completed + last.skipped).toBe(N);
-    expect(last.skipped).toBe(0);
+    expect(last.completed).toBe(N);
 
     worker.postMessage({ type: "stop" });
     await waitForMessage(worker, "done", 3000);
