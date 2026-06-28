@@ -19,7 +19,7 @@ function parseArgs(args: string[]) {
         val = "true";
       }
 
-      if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only") {
+      if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include") {
         const map: Record<string, string> = { "code-by": "codeBy", exclude: "exclude" };
         const k = map[key] ?? key;
         if (!flags[k]) flags[k] = [];
@@ -465,7 +465,7 @@ describe("parseArgs — new flags", () => {
           key = a.substring(2);
           val = "true";
         }
-        if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only") {
+        if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include") {
           const map: Record<string, string> = { "code-by": "codeBy", exclude: "exclude" };
           const k = map[key] ?? key;
           if (!flags[k]) flags[k] = [];
@@ -712,5 +712,99 @@ describe("stripFilteredLinks", () => {
     const html = "<a href='/wiki/File:Icon.svg'><img src='icon.svg'></a>";
     const result = stripFilteredLinks(html, "https://wiki.com/wiki/Page");
     expect(result).not.toContain("<img");
+  });
+});
+
+describe("isExcluded with --include", () => {
+  const include = [/\/wiki\/(Company_of_Heroes|Tanks|Airborne)/];
+  const exclude = [/\/wiki\/(File|User):/];
+  const visitOnly = [/\/wiki\/Special:AllPages/];
+
+  function isExcluded(url: string): boolean {
+    if (visitOnly.some((p) => p.test(url))) return false;
+    if (include.length > 0 && !include.some((p) => p.test(url))) return true;
+    return exclude.some((p) => p.test(url));
+  }
+
+  test("allowed by include — not excluded", () => {
+    expect(isExcluded("/wiki/Tanks")).toBe(false);
+    expect(isExcluded("/wiki/Airborne")).toBe(false);
+    expect(isExcluded("/wiki/Company_of_Heroes")).toBe(false);
+  });
+
+  test("File namespace excluded even though under /wiki/", () => {
+    expect(isExcluded("/wiki/File:Image.png")).toBe(true);
+  });
+
+  test("visit-only still overrides include", () => {
+    expect(isExcluded("/wiki/Special:AllPages")).toBe(false);
+  });
+
+  test("page not in include is excluded", () => {
+    expect(isExcluded("/wiki/Unknown_Page")).toBe(true);
+  });
+
+  test("empty include behaves like not set (uses exclude only)", () => {
+    const fn = (url: string) => {
+      if ([].some(() => false)) return false;
+      if ([].length > 0 && ![].some(() => false)) return true;
+      return [/\/wiki\/File:/].some((p) => p.test(url));
+    };
+    expect(fn("/wiki/Tanks")).toBe(false);
+    expect(fn("/wiki/File:Image.png")).toBe(true);
+  });
+});
+
+describe("parseArgs — --include", () => {
+  function parseArgs(args: string[]) {
+    const flags: Record<string, string | string[] | number | boolean> = {};
+    const positional: string[] = [];
+    let hasFlags = false;
+    for (const a of args) {
+      if (a.startsWith("--")) {
+        hasFlags = true;
+        const eq = a.indexOf("=");
+        let key: string, val: string;
+        if (eq !== -1) {
+          key = a.substring(2, eq);
+          val = a.substring(eq + 1);
+        } else {
+          key = a.substring(2);
+          val = "true";
+        }
+        if (key === "selector" || key === "code-by" || key === "exclude" || key === "visit-only" || key === "include") {
+          const map: Record<string, string> = { "code-by": "codeBy", exclude: "exclude" };
+          const k = map[key] ?? key;
+          if (!flags[k]) flags[k] = [];
+          (flags[k] as string[]).push(val);
+        } else if (key === "concurrent" || key === "interval" || key === "offset" || key === "limit") {
+          flags[key] = parseInt(val, 10);
+        } else {
+          flags[key] = val;
+        }
+      } else {
+        positional.push(a);
+      }
+    }
+    return { flags, positional, hasFlags };
+  }
+
+  test("include is repeatable", () => {
+    const r = parseArgs([
+      "--include=/wiki/Tanks",
+      "--include=/wiki/Airborne",
+    ]);
+    expect(r.flags["include"]).toEqual(["/wiki/Tanks", "/wiki/Airborne"]);
+  });
+
+  test("include with exclude and visit-only", () => {
+    const r = parseArgs([
+      "--include=/wiki/",
+      "--exclude=/wiki/File:",
+      "--visit-only=/wiki/Special:AllPages",
+    ]);
+    expect(r.flags["include"]).toEqual(["/wiki/"]);
+    expect(r.flags["exclude"]).toEqual(["/wiki/File:"]);
+    expect(r.flags["visit-only"]).toEqual(["/wiki/Special:AllPages"]);
   });
 });
