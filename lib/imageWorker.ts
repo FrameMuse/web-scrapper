@@ -16,14 +16,16 @@ let stopped = false;
 let active = 0;
 let enqueued = 0;
 let completed = 0;
+let skipped = 0;
+let failed = 0;
 
 async function downloadInternal(url: string): Promise<void> {
   let localPath = imageLocalPath(outputDir, url);
   const dir = dirname(localPath);
 
   if (existsSync(localPath)) {
-    completed++;
-    self.postMessage({ type: "progress", enqueued, completed });
+    skipped++;
+    self.postMessage({ type: "progress", enqueued, completed, skipped, failed });
     return;
   }
 
@@ -71,7 +73,7 @@ async function downloadInternal(url: string): Promise<void> {
     writeFileSync(localPath, buf);
     const elapsed = Math.round(performance.now() - start);
     completed++;
-    self.postMessage({ type: "progress", enqueued, completed });
+    self.postMessage({ type: "progress", enqueued, completed, skipped, failed });
     self.postMessage({ type: "timing", url, ms: elapsed });
     self.postMessage({
       type: "image-saved",
@@ -82,6 +84,7 @@ async function downloadInternal(url: string): Promise<void> {
       format: ct,
     });
   } catch (e) {
+    failed++;
     self.postMessage({ type: "error", message: `Image download error: ${e} for ${url}` });
   } finally {
     clearTimeout(t);
@@ -122,7 +125,7 @@ self.onmessage = (e: MessageEvent) => {
       seen.add(data.url);
       queue.push(data.url);
       enqueued++;
-      self.postMessage({ type: "progress", enqueued, completed });
+      self.postMessage({ type: "progress", enqueued, completed, skipped, failed });
       break;
     case "stop":
       stopped = true;

@@ -87,6 +87,8 @@ export class ImageDownloader {
 
   enqueued = 0;
   completed = 0;
+  skipped = 0;
+  failed = 0;
 
   enqueue(url: string): void {
     if (this._seen.has(url)) return;
@@ -104,6 +106,8 @@ export class ImageDownloader {
       if (data.type === "progress") {
         this.enqueued = data.enqueued;
         this.completed = data.completed;
+        this.skipped = data.skipped;
+        this.failed = data.failed;
       } else if (data.type === "error") {
         log("ERROR", data.message);
       } else if (data.type === "timing") {
@@ -122,7 +126,15 @@ export class ImageDownloader {
         if (data.type === "progress") {
           this.enqueued = data.enqueued;
           this.completed = data.completed;
-          process.stderr.write(`\r  Finishing images: ${this.completed}/${this.enqueued}`);
+          this.skipped = data.skipped;
+          this.failed = data.failed;
+          let line = `\r  Finishing images: ${this.completed}/${this.enqueued}`;
+          if (this.skipped > 0 || this.failed > 0) {
+            line += ` (+${this.skipped}`;
+            if (this.failed > 0) line += `, -${this.failed}`;
+            line += `)`;
+          }
+          process.stderr.write(line);
         } else if (data.type === "done") {
           process.stderr.write("\n");
           this.worker!.removeEventListener("message", onMsg);

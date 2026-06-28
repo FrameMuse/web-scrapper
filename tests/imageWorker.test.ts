@@ -55,6 +55,11 @@ beforeAll(() => {
           headers: { "content-type": "image/bmp" },
         });
       }
+      if (url.pathname.startsWith("/success_") && url.pathname.endsWith(".bmp")) {
+        return new Response(createBmp(128, 128, 0, 255, 0), {
+          headers: { "content-type": "image/bmp" },
+        });
+      }
       if (url.pathname === "/small.bmp") {
         return new Response(createBmp(32, 32, 0, 0, 255), {
           headers: { "content-type": "image/bmp" },
@@ -165,9 +170,10 @@ describe("imageWorker", () => {
     const p1 = await progress1;
     expect(p1.enqueued).toBeGreaterThanOrEqual(1);
 
-    // existsSync path also increments completed
-    const p2 = await waitForCompleted(worker, 1, 5000);
-    expect(p2.completed).toBeGreaterThanOrEqual(1);
+    // existsSync path increments skipped
+    const p2 = await waitForMessage(worker, "progress", 5000);
+    expect(p2.skipped).toBeGreaterThanOrEqual(1);
+    expect(p2.completed).toBe(0);
 
     worker.postMessage({ type: "stop" });
     await waitForMessage(worker, "done", 2000);
@@ -277,7 +283,7 @@ describe("imageWorker", () => {
     const N = 5;
     const urls: string[] = [];
     for (let i = 0; i < N; i++) {
-      urls.push(`${BASE}/success.bmp?i=${i}`);
+      urls.push(`${BASE}/success_${i}.bmp`);
     }
 
     for (const u of urls) {
@@ -286,7 +292,8 @@ describe("imageWorker", () => {
 
     const last = await waitForCompleted(worker, N, 10000);
     expect(last.enqueued).toBe(N);
-    expect(last.completed).toBe(N);
+    expect(last.completed + last.skipped).toBe(N);
+    expect(last.skipped).toBe(0);
 
     worker.postMessage({ type: "stop" });
     await waitForMessage(worker, "done", 3000);
