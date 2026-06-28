@@ -46,6 +46,15 @@ describe("links module", () => {
     expect(normalizeUrl("https://site.com/page?q=1")).toBe("https://site.com/page?q=1");
   });
 
+  test("normalizeUrl does not add trailing slash to Fuel_Cache-like URLs", () => {
+    expect(normalizeUrl("https://companyofheroes.fandom.com/wiki/Fuel_Cache")).toBe(
+      "https://companyofheroes.fandom.com/wiki/Fuel_Cache"
+    );
+    expect(normalizeUrl("https://companyofheroes.fandom.com/wiki/Fuel_Cache/")).toBe(
+      "https://companyofheroes.fandom.com/wiki/Fuel_Cache"
+    );
+  });
+
   describe("extractAllRawLinks", () => {
     test("extracts href from simple <a> tag", () => {
       const links = extractAllRawLinks(

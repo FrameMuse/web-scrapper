@@ -1,12 +1,12 @@
 import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync } from "fs";
-import { spawnSync } from "child_process";
+import { HtmlToMd } from "html2md-js";
+import { DOMParser } from "linkedom";
 import { extract } from "../lib/extract.ts";
+import { extractAllRawLinks } from "../lib/links.ts";
 import { rewriteLinks } from "../lib/linkRewrite.ts";
 import { renderFrontmatter } from "../lib/frontmatter.ts";
 import { urlToPath } from "../lib/save.ts";
-
-const CONVERTER = "rust-converter/target/release/html-to-md";
 
 const FIXTURES = "tests/fixtures";
 const BASE = "https://developers.figma.com/docs/plugins/";
@@ -121,15 +121,16 @@ describe("frontmatter integration", () => {
   });
 });
 
-describe("code-by feature (Rust converter)", () => {
+describe("code-by feature", () => {
+  function convert(html: string, codeBy: string[]): string {
+    const converter = new HtmlToMd({ codeBy });
+    const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
+    return converter.convert(doc.documentElement);
+  }
+
   test("code-by wraps property content in backticks", () => {
     const html = `<h3 id="annotations" data-property="true" class="property">annotations: ReadonlyArray&lt;<a href="/docs/Annotation/">Annotation</a>&gt;</h3>`;
-    const proc = spawnSync(CONVERTER, ["--once", "h3.property"], {
-      input: html,
-      encoding: "utf-8",
-    });
-    expect(proc.status).toBe(0);
-    const out = proc.stdout;
+    const out = convert(html, ["h3.property"]);
     expect(out).toContain("`annotations");
     expect(out).toContain("ReadonlyArray<");
     expect(out).toContain("[Annotation]");
@@ -137,13 +138,8 @@ describe("code-by feature (Rust converter)", () => {
 
   test("code-by splits backticks around links", () => {
     const html = `<h3 class="property">type: <a href="/docs/Foo/">Foo</a></h3>`;
-    const proc = spawnSync(CONVERTER, ["--once", "h3.property"], {
-      input: html,
-      encoding: "utf-8",
-    });
-    expect(proc.status).toBe(0);
+    const out = convert(html, ["h3.property"]);
     // Code span split around link: `type: `[Foo](Foo.md)
-    const out = proc.stdout;
     expect(out).toMatch(/`[^`]*type/);
     expect(out).toContain("[Foo]");
     expect(out).toMatch(/\`[^`]*$/); // trailing backtick after link
@@ -151,24 +147,15 @@ describe("code-by feature (Rust converter)", () => {
 
   test("code-by no match when class absent", () => {
     const html = `<h3>plain heading</h3>`;
-    const proc = spawnSync(CONVERTER, ["--once", "h3.property"], {
-      input: html,
-      encoding: "utf-8",
-    });
-    expect(proc.status).toBe(0);
+    const out = convert(html, ["h3.property"]);
     // Without matching class, heading is not code-wrapped
-    expect(proc.stdout).toMatch(/^### plain/);
-    expect(proc.stdout).not.toContain("`plain");
+    expect(out).toMatch(/^### plain/);
+    expect(out).not.toContain("`plain");
   });
 
   test("code-by multiple selectors", () => {
     const html = `<h3 class="sig">a: string</h3><h3 class="property">b: number</h3>`;
-    const proc = spawnSync(CONVERTER, ["--once", ".sig", "h3.property"], {
-      input: html,
-      encoding: "utf-8",
-    });
-    expect(proc.status).toBe(0);
-    const out = proc.stdout;
+    const out = convert(html, [".sig", "h3.property"]);
     expect(out).toMatch(/### `a: string`/);
     expect(out).toMatch(/### `b: number`/);
   });
@@ -178,16 +165,37 @@ describe("code-by feature (Rust converter)", () => {
       `<h3 class="property">` +
       `<a href="/docs/api/foo/"><code>foo</code></a>` +
       `: <a href="/docs/api/Bar/"><code>Bar</code></a></h3>`;
-    const proc = spawnSync(CONVERTER, ["--once", "h3.property"], {
-      input: html,
-      encoding: "utf-8",
-    });
-    expect(proc.status).toBe(0);
+    const out = convert(html, ["h3.property"]);
     // Links should be preserved as markdown links between code spans
     // Output pattern: [`foo`](foo.md): [`Bar`](Bar.md)
-    const out = proc.stdout;
     expect(out).toContain("[`foo`]");
     expect(out).toContain("[`Bar`]");
+  });
+});
+
+describe("trailing slash normalization in link extraction", () => {
+  test("link with trailing slash produces normalized URL without it", () => {
+    const html = '<a href="/wiki/Fuel_Cache/">Fuel Cache</a>';
+    const links = extractAllRawLinks(html, "https://companyofheroes.fandom.com/");
+    expect(links).toHaveLength(1);
+    expect(links[0].original).toBe("https://companyofheroes.fandom.com/wiki/Fuel_Cache/");
+    expect(links[0].normalized).toBe("https://companyofheroes.fandom.com/wiki/Fuel_Cache");
+  });
+
+  test("link without trailing slash also normalized correctly", () => {
+    const html = '<a href="/wiki/Fuel_Cache">Fuel Cache</a>';
+    const links = extractAllRawLinks(html, "https://companyofheroes.fandom.com/");
+    expect(links).toHaveLength(1);
+    expect(links[0].original).toBe("https://companyofheroes.fandom.com/wiki/Fuel_Cache");
+    expect(links[0].normalized).toBe("https://companyofheroes.fandom.com/wiki/Fuel_Cache");
+  });
+
+  test("both slash and no-slash variants deduplicate to one", () => {
+    const html =
+      '<a href="/wiki/Fuel_Cache">No Slash</a><a href="/wiki/Fuel_Cache/">With Slash</a>';
+    const links = extractAllRawLinks(html, "https://companyofheroes.fandom.com/");
+    expect(links).toHaveLength(1);
+    expect(links[0].normalized).toBe("https://companyofheroes.fandom.com/wiki/Fuel_Cache");
   });
 });
 

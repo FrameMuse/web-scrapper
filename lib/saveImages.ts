@@ -1,14 +1,13 @@
-import { mkdirSync, writeFileSync, existsSync } from "fs";
-import { dirname, join } from "path";
 import { createHash } from "crypto";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 import {
   IMAGE_EXTENSIONS,
-  extensionFromMime,
-  imageLocalPath,
+  imageLocalPath
 } from "./image-common.ts";
-export { IMAGE_EXTENSIONS, extensionFromMime, imageLocalPath } from "./image-common.ts";
-import { log } from "./runLogger.ts";
 import type { LinkDb } from "./linkDb.ts";
+import { log } from "./runLogger.ts";
+export { IMAGE_EXTENSIONS, extensionFromMime, imageLocalPath } from "./image-common.ts";
 
 export function isImageUrl(url: string): boolean {
   try {

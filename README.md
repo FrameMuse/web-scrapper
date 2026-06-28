@@ -2,19 +2,11 @@
 
 Fetch web pages by CSS selector, convert HTML content to Markdown, save as `.md` files with frontmatter.
 
-Designed for sitemap-driven batch scraping, BFS link crawling, and Cloudflare-bypassing Chrome sessions. Built with Bun, Rust (`turndown-cdp`), and SQLite.
+Designed for sitemap-driven batch scraping, BFS link crawling, and Cloudflare-bypassing Chrome sessions. Built with Bun and SQLite.
 
 ## Install
 
 ```bash
-# clone and build the Rust HTML-to-MD engine (forked)
-git clone https://github.com/FrameMuse/turndown-node ~/github/myforks/turndown-node
-cd ~/github/myforks/turndown-node && cargo build --release
-
-# build the Rust converter
-cd ~/github/mylibraries/web-scrapper/rust-converter
-cargo build --release
-
 # add alias
 echo 'alias scrape="bun ~/github/mylibraries/web-scrapper/scripts/cli.ts"' >> ~/.bashrc
 ```
@@ -233,20 +225,17 @@ scripts/cli.ts                     entry: arg parsing, orchestration
 │   ├── 001_create_links.sql       links table
 │   └── 002_create_logs.sql        logs table
 │
-rust-converter/                    Rust binary: stdin HTML → stdout MD
-  turndown-cdp + scraper (html5ever)
+
 ```
 
 ### Dependencies
 
 - **Runtime:** Bun 1.3.14
-- **Rust converter:** `turndown-cdp` (forked crate), `scraper` (html5ever-based HTML parser)
+- **HTML-to-MD:** `html2md-js` (DOM-to-Markdown converter)
 - **Chrome:** `google-chrome-stable` (optional, for Cloudflare bypass)
 - **SQLite:** built into Bun (`bun:sqlite`)
 
-### Fork
 
-The Rust converter uses a forked version of `turndown-node` at `~/github/myforks/turndown-node` (https://github.com/FrameMuse/turndown-node).
 
 ## Examples
 

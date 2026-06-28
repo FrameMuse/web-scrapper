@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
-import { existsSync } from "fs";
 import { join } from "path";
+import { HtmlToMd } from "html2md-js";
+import { DOMParser } from "linkedom";
 import { extract } from "../lib/extract.ts";
 import { fetchHtml, getChromeSession, setChromeEnabled } from "../lib/fetchHtml.ts";
 import { renderFrontmatter } from "../lib/frontmatter.ts";
@@ -26,55 +27,6 @@ import {
   saveSitemapCache,
 } from "../lib/sitemap.ts";
 
-const CONVERTER =
-  import.meta.dirname + "/../rust-converter/target/release/html-to-md";
-
-// ---- persistent Rust converter process ----
-
-class StreamReader {
-  private buffer = new Uint8Array(0)
-  private reader: ReadableStreamDefaultReader<Uint8Array>
-
-  constructor(stream: ReadableStream<Uint8Array>) {
-    this.reader = stream.getReader()
-  }
-
-  async readExact(n: number): Promise<Uint8Array> {
-    while (this.buffer.length < n) {
-      const { done, value } = await this.reader.read()
-      if (done) throw new Error("converter stream ended")
-      const newBuf = new Uint8Array(this.buffer.length + value.length)
-      newBuf.set(this.buffer, 0)
-      newBuf.set(value, this.buffer.length)
-      this.buffer = newBuf
-    }
-    const result = this.buffer.subarray(0, n)
-    this.buffer = this.buffer.subarray(n)
-    return result
-  }
-}
-
-let _converter: import("child_process").ChildProcess | null = null
-let _converterReader: StreamReader | null = null
-
-function ensureConverter(): void {
-  if (_converter) return
-  _converter = Bun.spawn([CONVERTER, ...codeBy], {
-    stdio: ["pipe", "pipe", "pipe"],
-  })
-  _converterReader = new StreamReader(_converter.stdout)
-}
-
-function closeConverter(): void {
-  if (!_converter) return
-  try {
-    _converter.stdin.write(new Uint8Array(4))
-    _converter.stdin.end()
-  } catch {}
-  _converter = null
-  _converterReader = null
-}
-
 // ---- global map save for exit handlers ----
 let _pendingMapSave: (() => void) | null = null;
 
@@ -82,9 +34,9 @@ function registerMapSave(fn: () => void): void {
   _pendingMapSave = fn;
 }
 
-process.on("exit", () => { process.stderr.write("\n"); closeConverter(); _pendingMapSave?.(); });
-process.on("SIGINT", () => { process.stderr.write("\n"); closeConverter(); _pendingMapSave?.(); process.exit(130); });
-process.on("SIGTERM", () => { process.stderr.write("\n"); closeConverter(); _pendingMapSave?.(); process.exit(143); });
+process.on("exit", () => { process.stderr.write("\n"); _pendingMapSave?.(); });
+process.on("SIGINT", () => { process.stderr.write("\n"); _pendingMapSave?.(); process.exit(130); });
+process.on("SIGTERM", () => { process.stderr.write("\n"); _pendingMapSave?.(); process.exit(143); });
 
 // ---- arg parsing ----
 
@@ -135,6 +87,7 @@ function expandTilde(s: string): string {
 
 const selector = (flags["selector"] as string[]) ?? [];
 const codeBy = (flags["codeBy"] as string[]) ?? [];
+const converter = new HtmlToMd({ codeBy });
 const exclude = ((flags["exclude"] as string[]) ?? []).map(p => new RegExp(p))
 const matchRe = flags["match"] as string | undefined;
 const urlBase = flags["url-base"] as string | undefined;
@@ -204,24 +157,8 @@ async function isMediaMime(url: string): Promise<boolean> {
 // ---- helpers ----
 
 async function htmlToMd(html: string): Promise<string> {
-  if (!_converter) {
-    if (!existsSync(CONVERTER)) {
-      throw new Error(
-        `Rust converter not found at ${CONVERTER}. Run: cd rust-converter && cargo build --release`
-      );
-    }
-    ensureConverter()
-  }
-
-  const header = Buffer.alloc(4)
-  header.writeUInt32LE(Buffer.byteLength(html), 0)
-  _converter!.stdin.write(header)
-  _converter!.stdin.write(html)
-
-  const hdr = await _converterReader!.readExact(4)
-  const respLen = new DataView(hdr.buffer).getUint32(0, true)
-  const body = await _converterReader!.readExact(respLen)
-  return new TextDecoder().decode(body).trimEnd()
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
+  return converter.convert(doc.documentElement).trimEnd();
 }
 
 function stripExcludedLinks(html: string): string {
@@ -431,8 +368,12 @@ async function crawlLinks(): Promise<void> {
 
   // Resume from DB if present
   if (db && db.size() > 0) {
-    const dbVisited = db.visitedSet();
-    const dbProcessed = db.processedSet();
+    const dbVisited = new Set<string>();
+    for (const u of db.visitedSet()) dbVisited.add(normalizeUrl(u));
+
+    const dbProcessed = new Set<string>();
+    for (const u of db.processedSet()) dbProcessed.add(normalizeUrl(u));
+
     const queued = new Set<string>();
 
     for (const url of dbVisited) {
@@ -446,7 +387,8 @@ async function crawlLinks(): Promise<void> {
       processed.add(url);
     }
     // Queue discovered-but-not-visited URLs (never fetched)
-    for (const url of db.allUrls()) {
+    for (const u of db.allUrls()) {
+      const url = normalizeUrl(u);
       if (!queued.has(url) && !dbProcessed.has(url)) {
         visited.add(url);
         queue.push({ original: url, normalized: url });
@@ -483,7 +425,7 @@ async function crawlLinks(): Promise<void> {
     const { html, contentType } = await fetchHtml(url);
     if (db) db.markVisited(normUrl, contentType);
 
-    const discovered = await extractLinks(html, url);
+    const discovered = await extractLinks(html, normUrl);
     if (db) {
       db.append(discovered.map((d) => ({ url: d.normalized, ct: "" })));
     }
@@ -600,7 +542,3 @@ try {
   await imageDownloader?.stop();
   getChromeSession()?.close();
 }
-
-
-
-process.stderr.write("<html></html>", "utf8")
