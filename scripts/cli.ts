@@ -179,7 +179,7 @@ async function scrapeOne(url: string): Promise<void> {
   let contentHtml = extracted.contentHtml;
   // Preprocess images before HTML-to-MD conversion
   if (imageDownloader) {
-    contentHtml = preprocessImages(contentHtml, url, outputDir, (imgUrl, w, h) => {
+    contentHtml = await preprocessImages(contentHtml, url, outputDir, (imgUrl, w, h) => {
       imageDownloader.enqueue(imgUrl, w, h);
     });
   }
@@ -450,7 +450,7 @@ async function crawlLinks(): Promise<void> {
     let contentHtml = extracted.contentHtml;
     const pageImages: { url: string; pageUrl: string; alt: string }[] = [];
     if (imageDownloader) {
-      contentHtml = preprocessImages(contentHtml, url, outputDir, (imgUrl, w, h, alt) => {
+      contentHtml = await preprocessImages(contentHtml, url, outputDir, (imgUrl, w, h, alt) => {
         imageDownloader.enqueue(imgUrl, w, h);
         pageImages.push({ url: imgUrl, pageUrl: url, alt: alt ?? "" });
       });
