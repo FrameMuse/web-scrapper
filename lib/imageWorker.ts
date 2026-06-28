@@ -32,12 +32,19 @@ async function downloadInternal(url: string): Promise<void> {
   const start = performance.now();
 
   const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), 30000);
+  let settled = false;
+  const timeoutRace = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      ac.abort();
+      if (!settled) reject(new Error(`Image download timeout`));
+    }, 30000);
+  });
   try {
     const headers: Record<string, string> = { "User-Agent": CHROME_UA };
     if (referer) headers["Referer"] = referer;
 
-    const res = await fetch(url, { headers, signal: ac.signal });
+    const res = await Promise.race([fetch(url, { headers, signal: ac.signal }), timeoutRace]);
+    settled = true;
     if (!res.ok) {
       failed++;
       self.postMessage({ type: "error", message: `Image HTTP ${res.status} for ${url}` });
@@ -88,8 +95,6 @@ async function downloadInternal(url: string): Promise<void> {
   } catch (e) {
     failed++;
     self.postMessage({ type: "error", message: `Image download error: ${e} for ${url}` });
-  } finally {
-    clearTimeout(t);
   }
 }
 
