@@ -144,11 +144,12 @@ if (hasFlags && !urlBase && !urlFilter) {
 
 function isExcluded(url: string): boolean {
   if (visitOnly.some(p => p.test(url))) return false;
-  if (include.length > 0 && !include.some(p => p.test(url))) return true;
+  if (include.some(p => p.test(url))) return false;
   return exclude.some(p => p.test(url));
 }
 
 function isVisitOnly(url: string): boolean {
+  if (include.some(p => p.test(url))) return false;
   return visitOnly.some(p => p.test(url));
 }
 
@@ -594,4 +595,5 @@ try {
 } finally {
   await imageDownloader?.stop();
   getChromeSession()?.close();
+  process.exit(0);
 }

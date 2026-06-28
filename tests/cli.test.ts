@@ -555,16 +555,18 @@ describe("isExcluded with visit-only override", () => {
 
 describe("isVisitOnly", () => {
   const visitOnly = [/\/wiki\/Special:(AllPages|AncientPages)/];
+  const include = [/\/wiki\/Special:AllPages/];
 
   function isVisitOnly(url: string): boolean {
+    if (include.some((p) => p.test(url))) return false;
     return visitOnly.some((p) => p.test(url));
   }
 
-  test("matches AllPages", () => {
-    expect(isVisitOnly("/wiki/Special:AllPages")).toBe(true);
+  test("include overrides visit-only — matched by include is not visit-only", () => {
+    expect(isVisitOnly("/wiki/Special:AllPages")).toBe(false);
   });
 
-  test("matches AncientPages", () => {
+  test("matches AncientPages (not in include)", () => {
     expect(isVisitOnly("/wiki/Special:AncientPages")).toBe(true);
   });
 
@@ -612,14 +614,17 @@ describe("resolveAbsolute", () => {
 describe("stripFilteredLinks", () => {
   const exclude = [/\/wiki\/(File|User|Help|Category):/];
   const visitOnly = [/\/wiki\/Special:(AllPages|AncientPages)/];
+  const include: RegExp[] = [];
   const urlFilter = "https://wiki.com/wiki/";
 
   function isExcluded(url: string): boolean {
     if (visitOnly.some((p) => p.test(url))) return false;
+    if (include.some((p) => p.test(url))) return false;
     return exclude.some((p) => p.test(url));
   }
 
   function isVisitOnly(url: string): boolean {
+    if (include.some((p) => p.test(url))) return false;
     return visitOnly.some((p) => p.test(url));
   }
 
@@ -722,7 +727,7 @@ describe("isExcluded with --include", () => {
 
   function isExcluded(url: string): boolean {
     if (visitOnly.some((p) => p.test(url))) return false;
-    if (include.length > 0 && !include.some((p) => p.test(url))) return true;
+    if (include.some((p) => p.test(url))) return false;
     return exclude.some((p) => p.test(url));
   }
 
@@ -740,14 +745,18 @@ describe("isExcluded with --include", () => {
     expect(isExcluded("/wiki/Special:AllPages")).toBe(false);
   });
 
-  test("page not in include is excluded", () => {
-    expect(isExcluded("/wiki/Unknown_Page")).toBe(true);
+  test("page in include overrides exclude", () => {
+    expect(isExcluded("/wiki/File:Image.png")).toBe(true);
   });
 
-  test("empty include behaves like not set (uses exclude only)", () => {
+  test("page not in include falls through to exclude check", () => {
+    expect(isExcluded("/wiki/Unknown_Page")).toBe(false);
+  });
+
+  test("empty include is no-op (uses exclude only)", () => {
     const fn = (url: string) => {
       if ([].some(() => false)) return false;
-      if ([].length > 0 && ![].some(() => false)) return true;
+      if ([].some(() => false)) return false;
       return [/\/wiki\/File:/].some((p) => p.test(url));
     };
     expect(fn("/wiki/Tanks")).toBe(false);
