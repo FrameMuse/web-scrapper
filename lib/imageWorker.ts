@@ -39,12 +39,14 @@ async function downloadInternal(url: string): Promise<void> {
 
     const res = await fetch(url, { headers, signal: ac.signal });
     if (!res.ok) {
+      failed++;
       self.postMessage({ type: "error", message: `Image HTTP ${res.status} for ${url}` });
       return;
     }
 
     const ct = res.headers.get("content-type") || "";
     if (!ct.startsWith("image/")) {
+      failed++;
       self.postMessage({ type: "error", message: `Image content-type "${ct}" for ${url}` });
       return;
     }

@@ -455,11 +455,7 @@ async function crawlLinks(): Promise<void> {
     let line = `  ${v}, ${p}`;
     if (imageDownloader) {
       line += `, images: ${imageDownloader.completed}/${imageDownloader.enqueued}`;
-      if (imageDownloader.skipped > 0 || imageDownloader.failed > 0) {
-        line += ` (+${imageDownloader.skipped}`;
-        if (imageDownloader.failed > 0) line += `, -${imageDownloader.failed}`;
-        line += `)`;
-      }
+      line += ` (+${imageDownloader.skipped}, -${imageDownloader.failed})`;
     }
     process.stderr.write(`\r${line}`);
   }

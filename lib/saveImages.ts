@@ -129,11 +129,7 @@ export class ImageDownloader {
           this.skipped = data.skipped;
           this.failed = data.failed;
           let line = `\r  Finishing images: ${this.completed}/${this.enqueued}`;
-          if (this.skipped > 0 || this.failed > 0) {
-            line += ` (+${this.skipped}`;
-            if (this.failed > 0) line += `, -${this.failed}`;
-            line += `)`;
-          }
+          line += ` (+${this.skipped}, -${this.failed})`;
           process.stderr.write(line);
         } else if (data.type === "done") {
           process.stderr.write("\n");
